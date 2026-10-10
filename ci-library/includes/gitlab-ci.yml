@@ -1,0 +1,11 @@
+# .gitlab-ci.yml yang dipakai sama oleh SEMUA repo developer
+# Copy file ini ke root repo developer sebagai .gitlab-ci.yml
+# Routing otomatis berdasarkan Project ID via gateway.yml
+#
+# DevOps mengelola pipeline di repo pipeline-gateway ini.
+# Developer TIDAK perlu mengubah file ini.
+
+include:
+  - project: 'platform/pipeline-gateway'
+    ref: main
+    file: '/ci-library/gateway.yml'

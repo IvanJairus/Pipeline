@@ -1,0 +1,75 @@
+# Pipeline Router
+#
+# File ini di-include oleh .gitlab-ci.yml di SEMUA repo developer.
+# Routing berdasarkan CI_PROJECT_ID ke template pipeline yang sesuai.
+#
+# .gitlab-ci.yml di repo developer cukup berisi:
+#   include:
+#     - project: 'platform/pipeline-gateway'
+#       ref: main
+#       file: '/ci-library/gateway.yml'
+#
+# Kalau ada perubahan nama template, cukup ubah file ini saja.
+# Tidak perlu mengubah .gitlab-ci.yml di 40-an repo developer.
+#
+# ── Tentang data di file ini ────────────────────────────────────────────────
+# Nama service dan project ID di bawah adalah SINTETIS, bukan inventaris sistem
+# tempat pipeline ini originally berjalan. Konvensinya sama seperti rentang IP
+# 10.20.x di repo ini: project ID sintetis selalu berada di pita 1001-1999.
+# scripts/check-sanitised.sh memblokir ID di luar pita itu, termasuk yang muncul
+# telanjang di baris `if:`, supaya pembersihan yang hanya mengedit komentar tidak
+# bisa lolos.
+#
+# Bentuk aslinya punya satu blok `rules:` per domain, dan sebagian besar barisnya
+# adalah komentar penanda domain. Yang dipotong di sini hanya jumlahnya.
+
+include:
+  # ── backend: layanan Java, artifact jar, tier 1 ───────────────────────────
+  - local: '/ci-library/templates/backend.yml'
+    rules:
+      - if: $CI_PROJECT_ID == "1001"   # identity
+      - if: $CI_PROJECT_ID == "1002"   # sessions
+      - if: $CI_PROJECT_ID == "1003"   # settlement
+      - if: $CI_PROJECT_ID == "1004"   # credentials
+      - if: $CI_PROJECT_ID == "1005"   # customer-portal
+      - if: $CI_PROJECT_ID == "1006"   # messaging
+      - if: $CI_PROJECT_ID == "1007"   # push-relay
+      - if: $CI_PROJECT_ID == "1008"   # scheduler
+
+  # ── platform: konfigurasi dan penemuan service, juga jar ──────────────────
+  - local: '/ci-library/templates/platform.yml'
+    rules:
+      - if: $CI_PROJECT_ID == "1010"   # config
+      - if: $CI_PROJECT_ID == "1011"   # discovery
+      - if: $CI_PROJECT_ID == "1012"   # edge
+
+  # ── web: frontend, artifact web, tier 3 ───────────────────────────────────
+  # Naik satu tier karena sebuah deploy web mengikuti backend, bukan mendahuluinya.
+  - local: '/ci-library/templates/web.yml'
+    rules:
+      - if: $CI_PROJECT_ID == "1020"   # portal
+      - if: $CI_PROJECT_ID == "1021"   # back-office
+      - if: $CI_PROJECT_ID == "1022"   # static-assets
+
+  # ── mobile: apk dan ipa, tidak lewat registry internal ────────────────────
+  - local: '/ci-library/templates/mobile.yml'
+    rules:
+      - if: $CI_PROJECT_ID == "1030"   # android
+      - if: $CI_PROJECT_ID == "1031"   # ios
+
+  # ── libraries: dibangun, tidak di-deploy ──────────────────────────────────
+  # Artifact-nya maven, tapi tidak punya environment tujuan. Aturan promotion
+  # menolak mempromosikan project di blok ini, dan itu disengaja.
+  - local: '/ci-library/templates/library.yml'
+    rules:
+      - if: $CI_PROJECT_ID == "1040"   # entities
+      - if: $CI_PROJECT_ID == "1041"   # common
+      - if: $CI_PROJECT_ID == "1042"   # messaging-lib
+
+  # ── yang TIDAK masuk gateway ──────────────────────────────────────────────
+  # Repo pipeline itu sendiri. Ia punya pipeline-nya sendiri, dan membiarkannya
+  # ikut ter-include membuat gateway mengubah dirinya sendiri di tengah jalan.
+  #
+  # Layanan yang masih build di Jenkins lama juga tidak ada di sini. Mereka
+  # dipromosikan ke gateway satu per satu, dan kontrak stage-nya yang lebih dulu
+  # disamakan - bukan file-nya.

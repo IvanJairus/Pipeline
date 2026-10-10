@@ -1,0 +1,133 @@
+name: verify
+
+# Dua hal yang dijaga di sini: tidak ada kredensial yang ikut terkirim, dan
+# tidak ada identifier internal yang lolos kembali setelah berkas diedit.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+  sanitised:
+    name: Internal-identifier gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run the sanitisation gate
+        run: bash scripts/check-sanitised.sh
+
+  syntax:
+    name: Shell and YAML parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: bash -n on every script
+        run: |
+          set -e
+          found=0
+          while IFS= read -r f; do
+            bash -n "$f"; echo "parsed: $f"; found=$((found+1))
+          done < <(find . -name '*.sh' -not -path './.git/*')
+          test "$found" -gt 0
+      - name: YAML parse on every manifest
+        run: |
+          set -e
+          python3 - <<'PY'
+          import glob, sys
+          try:
+              import yaml
+          except ImportError:
+              sys.exit("pyyaml tidak tersedia di runner")
+          files = [f for pat in ("**/*.yml", "**/*.yaml") for f in glob.glob(pat, recursive=True) if "/.git/" not in f]
+          for f in files:
+              with open(f) as fh:
+                  # deployment.yaml multi-dokumen: safe_load_all, bukan safe_load
+                  list(yaml.safe_load_all(fh))
+              print("parsed:", f)
+          assert files, "tidak ada YAML untuk diperiksa"
+          PY
+      - name: shellcheck - errors only (blocking)
+        run: |
+          shellcheck --version
+          # Hanya level `error` yang memblokir. Itu kategori bug nyata - misalnya
+          # `VAR = value` yang secara diam-diam bukan assignment lagi. warning dan
+          # info dilaporkan tapi tidak memblokir, karena berkas di sini adalah
+          # ekstraksi dari sistem yang dirawat di tempat lain: memaksa gaya akan
+          # membuat orang mematikan CI, bukan memperbaiki kode.
+          mapfile -t files < <(find . -name '*.sh' -not -path './.git/*')
+          shellcheck -x --severity=error "${files[@]}"
+      - name: shellcheck - warnings (advisory)
+        continue-on-error: true
+        run: |
+          mapfile -t files < <(find . -name '*.sh' -not -path './.git/*')
+          shellcheck -x --severity=warning "${files[@]}" \
+            || echo "::notice::shellcheck menemukan warning - lihat laporan, tidak memblokir"
+
+  sharedlibrary:
+    name: Shared library compiles and its rules pass
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4.9.0
+        with:
+          distribution: temurin
+          java-version: 21
+      # Versi Groovy dipin plus SHA-256-nya: "berhasil dikompilasi" harus hasil
+      # build, bukan klaim yang bergantung pada apa yang kebetulan ada di runner.
+      - name: Install Groovy 5.0.3
+        run: |
+          set -euo pipefail
+          curl -fsSLo groovy.zip https://archive.apache.org/dist/groovy/5.0.3/distribution/apache-groovy-binary-5.0.3.zip
+          echo "63bd43641292519e0fed40c3ee60215d54e7d2aed828debfeaae34f00b473bbb  groovy.zip" | sha256sum -c -
+          unzip -q groovy.zip
+          echo "$GITHUB_WORKSPACE/groovy-5.0.3/bin" >> "$GITHUB_PATH"
+      - name: groovyc on src and vars
+        run: groovyc -cp shared-library/src -d /tmp/glout $(find shared-library/src shared-library/vars -name '*.groovy')
+      - name: rule tests
+        run: groovy -cp shared-library/src shared-library/test/run.groovy
+      # The fixture is the contract the site's pipeline view is built on, so the
+      # Groovy side has to keep producing it, not just keep its own assertions green.
+      - name: golden fixture matches the Groovy classes
+        run: groovy -cp shared-library/src shared-library/test/run-fixture.groovy
+
+  parity:
+    name: JS port reproduces the Groovy fixture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+      # ivanjairus.xyz animates rules/release-rules.mjs in the browser. This job is
+      # the reason that is an honest claim rather than a look-alike.
+      - name: node rules/run-fixture.mjs
+        run: node rules/run-fixture.mjs
+
+  copy:
+    name: Copy gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+      # Pesan kegagalan gerbang ini dibaca manusia di dalam ticket, jadi bentuk
+      # penulisannya ikut diperiksa: tidak ada tanda hubung panjang yang dipakai
+      # sebagai penyambung kalimat, termasuk bentuk escape Unicode yang tidak
+      # terlihat oleh grep biasa.
+      - name: No dash used as a connector
+        run: node scripts/assert-copy.mjs --strict

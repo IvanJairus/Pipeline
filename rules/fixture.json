@@ -1,0 +1,760 @@
+{
+    "generated": "by test/run-fixture.groovy --write",
+    "note": "Golden file for the pipeline view. The Groovy classes author it; the JavaScript port in rules/ only has to match it. Do not hand-edit.",
+    "cases": [
+        {
+            "id": "branch-valid",
+            "fn": "validateBranch",
+            "input": [
+                "fix/471-timeout"
+            ],
+            "expect": [
+                
+            ]
+        },
+        {
+            "id": "branch-no-prefix",
+            "fn": "validateBranch",
+            "input": [
+                "feature-471"
+            ],
+            "expect": [
+                "branch: 'feature-471' is not <type>/<slug> with type in feat|fix|chore|hotfix"
+            ]
+        },
+        {
+            "id": "branch-uppercase",
+            "fn": "validateBranch",
+            "input": [
+                "fix/471-Timeout"
+            ],
+            "expect": [
+                "branch: 'fix/471-Timeout' is not <type>/<slug> with type in feat|fix|chore|hotfix",
+                "branch: contains uppercase; the board renders these inconsistently"
+            ]
+        },
+        {
+            "id": "branch-missing",
+            "fn": "validateBranch",
+            "input": [
+                null
+            ],
+            "expect": [
+                "branch: missing"
+            ]
+        },
+        {
+            "id": "tag-valid",
+            "fn": "validateTag",
+            "input": [
+                "v1.4.2"
+            ],
+            "expect": [
+                
+            ]
+        },
+        {
+            "id": "tag-floating",
+            "fn": "validateTag",
+            "input": [
+                "latest"
+            ],
+            "expect": [
+                "releaseTag: 'latest' is not vMAJOR.MINOR.PATCH"
+            ]
+        },
+        {
+            "id": "tag-missing",
+            "fn": "validateTag",
+            "input": [
+                null
+            ],
+            "expect": [
+                "releaseTag: missing, an untagged deploy is a guess about what shipped"
+            ]
+        },
+        {
+            "id": "promote-forward",
+            "fn": "validatePromotion",
+            "input": [
+                "sit",
+                "prod"
+            ],
+            "expect": [
+                
+            ]
+        },
+        {
+            "id": "promote-backward",
+            "fn": "validatePromotion",
+            "input": [
+                "uat",
+                "sit"
+            ],
+            "expect": [
+                "promotion: uat -> sit moves backwards; the ladder is sit -> uat -> prod"
+            ]
+        },
+        {
+            "id": "promote-unknown-env",
+            "fn": "validatePromotion",
+            "input": [
+                "sit",
+                "moon"
+            ],
+            "expect": [
+                "promotion to: unknown environment 'moon'"
+            ]
+        },
+        {
+            "id": "service-image-no-registry",
+            "fn": "validateService",
+            "input": [
+                {
+                    "id": "a",
+                    "name": "api",
+                    "artifact": "image",
+                    "owners": [
+                        "core"
+                    ]
+                }
+            ],
+            "expect": [
+                "service api: container artifact without a registry to push to"
+            ]
+        },
+        {
+            "id": "service-unknown-artifact",
+            "fn": "validateService",
+            "input": [
+                {
+                    "id": "a",
+                    "name": "api",
+                    "artifact": "war",
+                    "owners": [
+                        "core"
+                    ]
+                }
+            ],
+            "expect": [
+                "service api: artifact 'war' not in jar|image|apk|ipa|web"
+            ]
+        },
+        {
+            "id": "service-no-owner",
+            "fn": "validateService",
+            "input": [
+                {
+                    "id": "a",
+                    "name": "api",
+                    "artifact": "jar"
+                }
+            ],
+            "expect": [
+                "service api: no owner group; nobody would be paged"
+            ]
+        },
+        {
+            "id": "manifest-duplicate-id",
+            "fn": "validateManifest",
+            "input": [
+                {
+                    "releaseTag": "v1.0.0",
+                    "services": [
+                        {
+                            "id": "a",
+                            "name": "one",
+                            "artifact": "jar",
+                            "owners": [
+                                "x"
+                            ]
+                        },
+                        {
+                            "id": "a",
+                            "name": "two",
+                            "artifact": "jar",
+                            "owners": [
+                                "x"
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "expect": [
+                "manifest: service id 'a' appears 2 times; a later entry would overwrite the earlier one"
+            ]
+        },
+        {
+            "id": "manifest-empty",
+            "fn": "validateManifest",
+            "input": [
+                {
+                    "releaseTag": "v1.0.0",
+                    "services": [
+                        
+                    ]
+                }
+            ],
+            "expect": [
+                "manifest.services: empty, a release with nothing in it"
+            ]
+        },
+        {
+            "id": "approvals-complete",
+            "fn": "approvalChain",
+            "input": [
+                {
+                    "team": "dev@x",
+                    "business": "biz@x",
+                    "product": "prod@x",
+                    "architecture": "arch@x",
+                    "engineering": "eng@x"
+                }
+            ],
+            "expect": [
+                
+            ]
+        },
+        {
+            "id": "approvals-one-signer",
+            "fn": "approvalChain",
+            "input": [
+                {
+                    "team": "a",
+                    "business": "a",
+                    "product": "a",
+                    "architecture": "a",
+                    "engineering": "a"
+                }
+            ],
+            "expect": [
+                "approval chain: the same identity signed consecutive layers"
+            ]
+        },
+        {
+            "id": "approvals-none",
+            "fn": "approvalChain",
+            "input": [
+                {
+                    
+                }
+            ],
+            "expect": [
+                "approval team: not granted",
+                "approval business: not granted",
+                "approval product: not granted",
+                "approval architecture: not granted",
+                "approval engineering: not granted"
+            ]
+        },
+        {
+            "id": "gate-green",
+            "fn": "evaluateGate",
+            "input": [
+                {
+                    "deploy": {
+                        "result": "success"
+                    },
+                    "quality": {
+                        "status": "passed",
+                        "coverage": 71.5,
+                        "duplication": 3.1
+                    },
+                    "scan": {
+                        "sbom": true,
+                        "findings": [
+                            {
+                                "severity": "LOW"
+                            },
+                            {
+                                "severity": "medium"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "expect": {
+                "passed": true,
+                "failures": [
+                    
+                ],
+                "warnings": [
+                    "1 medium findings accepted for this release"
+                ],
+                "summary": "gate passed"
+            }
+        },
+        {
+            "id": "gate-no-scan",
+            "fn": "evaluateGate",
+            "input": [
+                {
+                    "deploy": {
+                        "result": "success"
+                    },
+                    "quality": {
+                        "status": "passed",
+                        "coverage": 71.5,
+                        "duplication": 3.1
+                    }
+                }
+            ],
+            "expect": {
+                "passed": false,
+                "failures": [
+                    "vulnerability scan: no report, treated as unscanned"
+                ],
+                "warnings": [
+                    
+                ],
+                "summary": "gate failed: vulnerability scan: no report, treated as unscanned"
+            }
+        },
+        {
+            "id": "gate-scanner-error",
+            "fn": "evaluateGate",
+            "input": [
+                {
+                    "deploy": {
+                        "result": "success"
+                    },
+                    "quality": {
+                        "status": "passed",
+                        "coverage": 71.5,
+                        "duplication": 3.1
+                    },
+                    "scan": {
+                        "sbom": true,
+                        "error": "trivy timeout",
+                        "findings": [
+                            
+                        ]
+                    }
+                }
+            ],
+            "expect": {
+                "passed": false,
+                "failures": [
+                    "vulnerability scan: trivy timeout"
+                ],
+                "warnings": [
+                    
+                ],
+                "summary": "gate failed: vulnerability scan: trivy timeout"
+            }
+        },
+        {
+            "id": "gate-one-critical",
+            "fn": "evaluateGate",
+            "input": [
+                {
+                    "deploy": {
+                        "result": "success"
+                    },
+                    "quality": {
+                        "status": "passed",
+                        "coverage": 71.5,
+                        "duplication": 3.1
+                    },
+                    "scan": {
+                        "sbom": true,
+                        "findings": [
+                            {
+                                "severity": "CRITICAL"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "expect": {
+                "passed": false,
+                "failures": [
+                    "vulnerabilities: 1 critical (allowed 0)"
+                ],
+                "warnings": [
+                    
+                ],
+                "summary": "gate failed: vulnerabilities: 1 critical (allowed 0)"
+            }
+        },
+        {
+            "id": "gate-coverage-absent",
+            "fn": "evaluateGate",
+            "input": [
+                {
+                    "deploy": {
+                        "result": "success"
+                    },
+                    "quality": {
+                        "status": "passed",
+                        "duplication": 2.0
+                    },
+                    "scan": {
+                        "sbom": true,
+                        "findings": [
+                            {
+                                "severity": "LOW"
+                            },
+                            {
+                                "severity": "medium"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "expect": {
+                "passed": false,
+                "failures": [
+                    "coverage: not measured, treated as below floor"
+                ],
+                "warnings": [
+                    "1 medium findings accepted for this release"
+                ],
+                "summary": "gate failed: coverage: not measured, treated as below floor"
+            }
+        },
+        {
+            "id": "gate-duplication-high",
+            "fn": "evaluateGate",
+            "input": [
+                {
+                    "deploy": {
+                        "result": "success"
+                    },
+                    "quality": {
+                        "status": "passed",
+                        "coverage": 60.0,
+                        "duplication": 9.4
+                    },
+                    "scan": {
+                        "sbom": true,
+                        "findings": [
+                            {
+                                "severity": "LOW"
+                            },
+                            {
+                                "severity": "medium"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "expect": {
+                "passed": false,
+                "failures": [
+                    "duplication: 9.4% above 8.0% ceiling"
+                ],
+                "warnings": [
+                    "1 medium findings accepted for this release"
+                ],
+                "summary": "gate failed: duplication: 9.4% above 8.0% ceiling"
+            }
+        },
+        {
+            "id": "gate-no-sbom",
+            "fn": "evaluateGate",
+            "input": [
+                {
+                    "deploy": {
+                        "result": "success"
+                    },
+                    "quality": {
+                        "status": "passed",
+                        "coverage": 71.5,
+                        "duplication": 3.1
+                    },
+                    "scan": {
+                        "sbom": false,
+                        "findings": [
+                            
+                        ]
+                    }
+                }
+            ],
+            "expect": {
+                "passed": false,
+                "failures": [
+                    "sbom: not produced, a release nobody can inventory"
+                ],
+                "warnings": [
+                    
+                ],
+                "summary": "gate failed: sbom: not produced, a release nobody can inventory"
+            }
+        },
+        {
+            "id": "gate-null",
+            "fn": "evaluateGate",
+            "input": [
+                null
+            ],
+            "expect": {
+                "passed": false,
+                "failures": [
+                    "gate input: missing"
+                ],
+                "warnings": [
+                    
+                ],
+                "summary": "gate failed: gate input: missing"
+            }
+        },
+        {
+            "id": "plan-sit",
+            "fn": "buildPlan",
+            "input": [
+                {
+                    "releaseTag": "v1.4.2",
+                    "services": [
+                        {
+                            "id": "web",
+                            "name": "portal",
+                            "artifact": "web",
+                            "owners": [
+                                "digital"
+                            ]
+                        },
+                        {
+                            "id": "api",
+                            "name": "core-api",
+                            "artifact": "jar",
+                            "owners": [
+                                "core"
+                            ],
+                            "commit": "a1b2c3d"
+                        },
+                        {
+                            "id": "img",
+                            "name": "svc-image",
+                            "artifact": "image",
+                            "registry": "registry.example.internal",
+                            "owners": [
+                                "core"
+                            ]
+                        }
+                    ]
+                },
+                "sit",
+                {
+                    
+                }
+            ],
+            "expect": [
+                {
+                    "id": "api",
+                    "name": "core-api",
+                    "artifact": "jar",
+                    "tier": 1,
+                    "watermark": "9cd0931f92ef94d2",
+                    "skip": false,
+                    "reason": null
+                },
+                {
+                    "id": "img",
+                    "name": "svc-image",
+                    "artifact": "image",
+                    "tier": 1,
+                    "watermark": "5cd0affb05902b32",
+                    "skip": false,
+                    "reason": null
+                },
+                {
+                    "id": "web",
+                    "name": "portal",
+                    "artifact": "web",
+                    "tier": 3,
+                    "watermark": "2202cb3b68758e1b",
+                    "skip": false,
+                    "reason": null
+                }
+            ]
+        },
+        {
+            "id": "plan-uat-waves",
+            "fn": "planWaves",
+            "input": [
+                {
+                    "releaseTag": "v1.4.2",
+                    "services": [
+                        {
+                            "id": "web",
+                            "name": "portal",
+                            "artifact": "web",
+                            "owners": [
+                                "digital"
+                            ]
+                        },
+                        {
+                            "id": "api",
+                            "name": "core-api",
+                            "artifact": "jar",
+                            "owners": [
+                                "core"
+                            ],
+                            "commit": "a1b2c3d"
+                        },
+                        {
+                            "id": "img",
+                            "name": "svc-image",
+                            "artifact": "image",
+                            "registry": "registry.example.internal",
+                            "owners": [
+                                "core"
+                            ]
+                        }
+                    ]
+                },
+                "uat"
+            ],
+            "expect": [
+                [
+                    "api",
+                    "img"
+                ],
+                [
+                    "web"
+                ]
+            ]
+        },
+        {
+            "id": "plan-skip-success",
+            "fn": "buildPlan",
+            "input": [
+                {
+                    "releaseTag": "v1.4.2",
+                    "services": [
+                        {
+                            "id": "web",
+                            "name": "portal",
+                            "artifact": "web",
+                            "owners": [
+                                "digital"
+                            ]
+                        },
+                        {
+                            "id": "api",
+                            "name": "core-api",
+                            "artifact": "jar",
+                            "owners": [
+                                "core"
+                            ],
+                            "commit": "a1b2c3d"
+                        },
+                        {
+                            "id": "img",
+                            "name": "svc-image",
+                            "artifact": "image",
+                            "registry": "registry.example.internal",
+                            "owners": [
+                                "core"
+                            ]
+                        }
+                    ]
+                },
+                "sit",
+                {
+                    "9cd0931f92ef94d2": "success"
+                }
+            ],
+            "expect": [
+                {
+                    "id": "api",
+                    "name": "core-api",
+                    "artifact": "jar",
+                    "tier": 1,
+                    "watermark": "9cd0931f92ef94d2",
+                    "skip": true,
+                    "reason": "already deployed sit for v1.4.2"
+                },
+                {
+                    "id": "img",
+                    "name": "svc-image",
+                    "artifact": "image",
+                    "tier": 1,
+                    "watermark": "5cd0affb05902b32",
+                    "skip": false,
+                    "reason": null
+                },
+                {
+                    "id": "web",
+                    "name": "portal",
+                    "artifact": "web",
+                    "tier": 3,
+                    "watermark": "2202cb3b68758e1b",
+                    "skip": false,
+                    "reason": null
+                }
+            ]
+        },
+        {
+            "id": "plan-retry-failed",
+            "fn": "buildPlan",
+            "input": [
+                {
+                    "releaseTag": "v1.4.2",
+                    "services": [
+                        {
+                            "id": "web",
+                            "name": "portal",
+                            "artifact": "web",
+                            "owners": [
+                                "digital"
+                            ]
+                        },
+                        {
+                            "id": "api",
+                            "name": "core-api",
+                            "artifact": "jar",
+                            "owners": [
+                                "core"
+                            ],
+                            "commit": "a1b2c3d"
+                        },
+                        {
+                            "id": "img",
+                            "name": "svc-image",
+                            "artifact": "image",
+                            "registry": "registry.example.internal",
+                            "owners": [
+                                "core"
+                            ]
+                        }
+                    ]
+                },
+                "sit",
+                {
+                    "9cd0931f92ef94d2": "failed"
+                }
+            ],
+            "expect": [
+                {
+                    "id": "api",
+                    "name": "core-api",
+                    "artifact": "jar",
+                    "tier": 1,
+                    "watermark": "9cd0931f92ef94d2",
+                    "skip": false,
+                    "reason": null
+                },
+                {
+                    "id": "img",
+                    "name": "svc-image",
+                    "artifact": "image",
+                    "tier": 1,
+                    "watermark": "5cd0affb05902b32",
+                    "skip": false,
+                    "reason": null
+                },
+                {
+                    "id": "web",
+                    "name": "portal",
+                    "artifact": "web",
+                    "tier": 3,
+                    "watermark": "2202cb3b68758e1b",
+                    "skip": false,
+                    "reason": null
+                }
+            ]
+        }
+    ]
+}

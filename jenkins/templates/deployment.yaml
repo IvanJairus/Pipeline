@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {APP_NAME}
+  namespace: {NAMESPACE}
+  labels:
+    app: {APP_NAME}
+    group: {GROUP_NAME}
+    branch: {TAG}
+spec:
+  replicas: {MIN_REPLICAS}
+  selector:
+    matchLabels:
+      app: {APP_NAME}
+  template:
+    metadata:
+      labels:
+        app: {APP_NAME}
+        group: {GROUP_NAME}
+    spec:
+      imagePullSecrets:
+        - name: {HARBOR_SECRET}
+      containers:
+        - name: {APP_NAME}
+          image: {HARBOR_IMAGE}
+          ports:
+            - containerPort: {PORT}
+              protocol: TCP
+          resources:
+            requests:
+              cpu: {REQ_CPU}
+              memory: {REQ_MEMORY}
+            limits:
+              cpu: {LIMIT_CPU}
+              memory: {LIMIT_MEMORY}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: {PORT}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: {PORT}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {APP_NAME}
+  namespace: {NAMESPACE}
+  labels:
+    app: {APP_NAME}
+    group: {GROUP_NAME}
+spec:
+  selector:
+    app: {APP_NAME}
+  ports:
+    - port: {PORT}
+      targetPort: {PORT}
+      protocol: TCP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {APP_NAME}
+  namespace: {NAMESPACE}
+  labels:
+    app: {APP_NAME}
+spec:
+  to:
+    kind: Service
+    name: {APP_NAME}
+  port:
+    targetPort: {PORT}
