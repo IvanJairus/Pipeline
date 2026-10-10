@@ -8,15 +8,21 @@
 # pemetaan. Jadi sekarang ada --selftest: contoh bocoran sintetis harus
 # tertangkap, satu saja yang lolos berarti gerbangnya mati.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+# cd yang gagal tanpa || exit akan membuat semua pola dicari di direktori yang
+# salah, dan gerbang yang memeriksa salah direktori selalu lulus.
+cd "$(dirname "$0")/.." || { echo "check-sanitised: tidak bisa masuk root repo" >&2; exit 2; }
 fail=0
 
 # ERE murni. (?i) bukan perluasan POSIX: perilakunya beda antara BSD grep di
 # laptop dan GNU grep di runner, jadi kapital ditulis eksplisit.
 P_HOSTNAME='\.(co\.id|intra|corp)\b'
 P_IP='(^|[^0-9.])([0-9]{1,3}\.){3}[0-9]{1,3}'
-P_IP_SYNTH='(^|\.)10\.20\.[0-9]+\.[0-9]+$'
-P_KRED="(token|password|secret|api[_-]?key)[\"' ]*[:=][\"' ]*[A-Za-z0-9._+/=-]{12,}"
+# Yang boleh lewat: rentang sintetis 10.20.x dan loopback. Loopback bukan
+# identifier internal - ia alamat mesin yang sedang menjalankan test, dan
+# menyembunyikannya hanya akan memaksa orang menulis "localhost" di kode yang
+# memang memanggil 127.0.0.1.
+P_IP_SYNTH='(^|\.)(10\.20|127\.0)(\.[0-9]+){2}$'
+P_KRED="(token|password|secret|api[_-]?key)[\"' ]*[:=][\"' ]*[A-Za-z0-9._+/=-]{12,}[\"']"
 P_BEARER='([Bb][Ee][Aa][Rr][Ee][Rr]|[Bb][Aa][Ss][Ii][Cc])[[:space:]]+[A-Za-z0-9._+/=-]{16,}'
 # Tidak ada daftar nama organisasi atau nama service di file ini. Sebuah deny-list
 # yang menyebut kosakata internal menerbitkan persis kosakata yang mau dijaganya;
@@ -54,8 +60,11 @@ scan() {
 }
 
 ip_hits() {
+  # Garis output mentah masih membawa prefik non-angka dari P_IP ("svc 10.20.4.7"),
+  # jadi prefiknya dibuang dulu. Tanpa langkah ini, alamat yang seharusnya dilepas
+  # band-filter lolos sebagai teks yang tidak mirip alamat sama sekali.
   grep -rhoEI --exclude-dir=.git --exclude-dir=_raw --exclude=check-sanitised.sh "$P_IP" . 2>/dev/null \
-    | tr -d ' :' | grep -vE "$P_IP_SYNTH" | sort -u
+    | sed -E 's/^[^0-9]*//' | tr -d ' :' | grep -vE "$P_IP_SYNTH" | sort -u
 }
 
 projid_hits() {
@@ -134,6 +143,18 @@ BAD
     echo "  ok   ID project sintetis di baris rules dikenali lalu dilepas band-filter"
   else
     echo "  MATI: band-filter ID project tidak bekerja"
+    rc=1
+  fi
+
+  # Band-filter IP diuji dua arah juga: alamat internal bentuk nyata harus tersisa,
+  # rentang sintetis dan loopback harus dilepas.
+  printf 'svc 10.20.4.7 dan 127.0.0.1 dan 172.16.9.4\n' > "$dir/ips"
+  over_ip=$(grep -oE "$P_IP" "$dir/ips" | sed -E 's/^[^0-9]*//' | tr -d ' :' | grep -vE "$P_IP_SYNTH" || true)
+  hit_ip=$(grep -cE "$P_IP" "$dir/ips" || true)
+  if [ "$hit_ip" != "0" ] && [ "$over_ip" = "172.16.9.4" ]; then
+    echo "  ok   band-filter IP melepas 10.20.x dan loopback, menahan sisanya"
+  else
+    echo "  MATI: band-filter IP tidak bekerja (hits=$hit_ip tersisa='$over_ip')"
     rc=1
   fi
   return $rc

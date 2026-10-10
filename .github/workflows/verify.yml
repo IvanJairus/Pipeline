@@ -60,6 +60,27 @@ jobs:
               print("parsed:", f)
           assert files, "tidak ada YAML untuk diperiksa"
           PY
+      - name: every include: local target exists
+        run: |
+          set -e
+          python3 - <<'PY'
+          import glob, os, sys, yaml
+          # gateway.yml merutekan ke lima template. Kalau salah satu path tidak ada,
+          # GitLab gagal saat membaca include - dan yang gagal adalah pipeline milik
+          # orang lain, bukan pipeline ini. Pemeriksaan ini menutup celah "file
+          # direname, include tidak ikut berubah".
+          missing = []
+          for f in glob.glob("ci-library/**/*.yml", recursive=True):
+              doc = yaml.safe_load(open(f, encoding="utf-8")) or {}
+              for inc in doc.get("include") or []:
+                  if isinstance(inc, dict) and inc.get("local"):
+                      target = inc["local"].lstrip("/")
+                      if not os.path.exists(target):
+                          missing.append(f"{f} -> {target}")
+          for m in missing:
+              print("::error::include tidak menunjuk ke berkas apa pun:", m)
+          sys.exit(1 if missing else 0)
+          PY
       - name: shellcheck - errors only (blocking)
         run: |
           shellcheck --version
@@ -103,6 +124,13 @@ jobs:
       # Groovy side has to keep producing it, not just keep its own assertions green.
       - name: golden fixture matches the Groovy classes
         run: groovy -cp shared-library/src shared-library/test/run-fixture.groovy
+      - name: gate entry point selftest
+        run: groovy -cp shared-library/src ci-library/scripts/run-gate.groovy --selftest
+      # Transkrip yang dibaca halaman /pipelines/ dihasilkan oleh replay.sh. Yang
+      # diperiksa di sini bukan isinya (waktu berubah tiap jalan) tapi bentuknya:
+      # semua barisnya seragam, dan dua-dua verdict ada.
+      - name: transcript keeps one log shape
+        run: bash ci-library/examples/replay.sh --check
 
   parity:
     name: JS port reproduces the Groovy fixture
@@ -131,3 +159,30 @@ jobs:
       # terlihat oleh grep biasa.
       - name: No dash used as a connector
         run: node scripts/assert-copy.mjs --strict
+
+  # Setiap script di repo ini punya --selftest, dan job ini menjalankannya.
+  # Alasannya praktis: baris log adalah kontrak. ci-library/scripts/lib/log.sh
+  # menentukan bentuknya, dan halaman /pipelines/ di portofolio saya menggambar
+  # console dari bentuk itu. Script yang mengubah format tanpa mengubah
+  # halamannya akan ketahuan di sini, bukan di log orang lain.
+  behavior:
+    name: Script selftests (bash + python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@4ed389bdf42fe3690172b7ed914e538deb5afc67 # v5.1.0
+        with:
+          python-version: "3.12"
+      - name: bash tool selftests
+        run: |
+          set -e
+          for s in publish-artifact deploy ticket-sync observability-push; do
+            printf '::group::%s\n' "$s"
+            bash "ci-library/scripts/$s.sh" --selftest
+            printf '::endgroup::\n'
+          done
+      - name: python tool selftests
+        run: |
+          set -e
+          python3 ci-library/tools/release_stamp.py --selftest
+          python3 ci-library/tools/ticket_sync.py --selftest
