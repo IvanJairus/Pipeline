@@ -1,0 +1,32 @@
+# Dihasilkan oleh ci-library/examples/replay.sh pada 2026-10-10T17:04:05Z
+# Input: ci-library/examples/{release.json,trivy-report.json,trivy-refused.json,sonar-gate.json}
+# Semua perintah dijalankan dengan DRY_RUN=1; tidak ada sistem nyata yang disentuh.
+
+2026-10-11T00:04:02.020+07:00 INFO build:release-stamp stamped version=R0.1.0 commit=4c5b142 artifacts=1 status=success
+2026-10-11T00:04:02.020+07:00 INFO build:release-stamp audit release=R0.1.0 pipeline=1421 branch=fix/471-timeout
+2026-10-11T00:04:02.079+07:00 INFO scan:sbom-index verify-sbom file=sbom.json problems=0
+2026-10-11T00:04:03.306+07:00 INFO gate:release-rules start manifest=ci-library/examples/release.json scan=ci-library/examples/trivy-report.json quality=ci-library/examples/sonar-gate.json
+2026-10-11T00:04:03.345+07:00 INFO gate:release-rules validateManifest problems=0
+2026-10-11T00:04:03.364+07:00 INFO gate:release-rules GateResult.evaluate passed=true failures=0 warnings=1
+2026-10-11T00:04:03.385+07:00 INFO gate:release-rules DeploymentPlan.build env=sit services=3 waves=2
+2026-10-11T00:04:03.407+07:00 INFO gate:release-rules verdict written passed=true file=gate-verdict.json
+# scan=trivy-report verdict=gate passed
+2026-10-11T00:04:04.630+07:00 INFO gate:release-rules start manifest=ci-library/examples/release.json scan=ci-library/examples/trivy-refused.json quality=ci-library/examples/sonar-gate.json
+2026-10-11T00:04:04.667+07:00 INFO gate:release-rules validateManifest problems=0
+2026-10-11T00:04:04.686+07:00 ERROR gate:release-rules GateResult.evaluate passed=false failures=1 warnings=1
+2026-10-11T00:04:04.717+07:00 INFO gate:release-rules DeploymentPlan.build env=sit services=3 waves=2
+2026-10-11T00:04:04.729+07:00 ERROR gate:release-rules verdict written passed=false file=gate-verdict.json
+# scan=trivy-refused verdict=gate failed: vulnerabilities: 1 critical (allowed 0)
+2026-10-11T00:04:04.865+07:00 INFO gate:ticket-sync resolve gitlab_issue=471 jira_issue=none source=commit
+2026-10-11T00:04:04.960+07:00 WARN gate:ticket-sync skipped reason=no-ticket-configured issue=471/none
+# ticket note written lines=18
+2026-10-11T00:04:05.202+07:00 WARN feedback:observability skipped metric=duration_seconds reason=not_reported_by_runner
+2026-10-11T00:04:05.225+07:00 INFO feedback:observability audit release=R0.1.0 project=core-api passed=0 warnings=1 pipeline=1421 metrics=metrics.prom
+2026-10-11T00:04:05.248+07:00 WARN feedback:observability skipped reason=no_pushgateway_url file=metrics.prom metrics=3
+2026-10-11T00:04:05.344+07:00 INFO deploy:sit verdict checked file=gate-verdict.json env=sit allowed=true
+2026-10-11T00:04:05.376+07:00 INFO deploy:sit rendered template=jenkins/templates/deployment.yaml out=rendered/sit.yaml env=sit namespace=ci-sit-ledger-service
+2026-10-11T00:04:05.392+07:00 INFO deploy:sit would run kubectl -n ci-sit-ledger-service apply --server-side -f rendered/sit.yaml
+2026-10-11T00:04:05.408+07:00 INFO deploy:sit applied env=sit digest=6f1a2c34d5e6 namespace=ci-sit-ledger-service
+2026-10-11T00:04:05.449+07:00 INFO deploy:sit would run kubectl -n ci-sit-ledger-service rollout status deployment/core-api --timeout=300s
+2026-10-11T00:04:05.465+07:00 INFO deploy:sit ready env=sit timeout=300s
+2026-10-11T00:04:05.518+07:00 ERROR promote:prod failed reason=change_window to=prod outside=window-mon-thu-09-17 escape=CHANGE_WINDOW-0-only-for-tests

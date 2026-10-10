@@ -1,0 +1,41 @@
+{
+  "releaseTag": "v1.4.2",
+  "tracker": "FIN-471",
+  "services": [
+    {
+      "id": "1001",
+      "name": "core-api",
+      "artifact": "jar",
+      "tier": "backend",
+      "owners": ["be-core"],
+      "registry": "registry.example.internal/platform"
+    },
+    {
+      "id": "1020",
+      "name": "portal",
+      "artifact": "web",
+      "tier": "web",
+      "owners": ["fe-portal"]
+    },
+    {
+      "id": "1006",
+      "name": "messaging",
+      "artifact": "image",
+      "tier": "backend",
+      "owners": ["be-msg"],
+      "registry": "registry.example.internal/platform"
+    }
+  ],
+  "environments": [
+    { "env": "sit", "namespace": "ci-ledger-service-1001" },
+    { "env": "uat", "namespace": "ci-ledger-service-1002" },
+    { "env": "prod", "namespace": "ci-ledger-service-1003" }
+  ],
+  "approvals": {
+    "team": "be-core-lead",
+    "business": "ops-desk-1",
+    "product": "pm-payments",
+    "architecture": "arch-review-2",
+    "engineering": "eng-manager-3"
+  }
+}

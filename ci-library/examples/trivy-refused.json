@@ -1,0 +1,57 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "registry.example.internal/platform/core-api",
+  "ArtifactType": "container",
+  "Metadata": {
+    "OS": { "Family": "alpine", "Name": "3.19.1" },
+    "ImageID": "sha256:6f1a2c34d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f80"
+  },
+  "Results": [
+    {
+      "Target": "registry.example.internal/platform/core-api (alpine 3.19.1)",
+      "Class": "os-package",
+      "Type": "alpine",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-2511",
+          "PkgName": "libcrypto3",
+          "InstalledVersion": "3.1.4-r5",
+          "FixedVersion": "3.1.4-r6",
+          "Severity": "HIGH",
+          "Source": { "URL": "https://secdb.alpinelinux.org/" }
+        }
+      ]
+    },
+    {
+      "Target": "target/core-api-1.4.2.jar",
+      "Class": "lang-pkg",
+      "Type": "java-archive",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2021-20191",
+          "PkgName": "jackson-databind",
+          "InstalledVersion": "2.9.10",
+          "FixedVersion": "2.12.7",
+          "Severity": "CRITICAL",
+          "Source": { "URL": "https://ossindex.sonatype.org/" }
+        },
+        {
+          "VulnerabilityID": "CVE-2023-5072",
+          "PkgName": "jackson-databind",
+          "InstalledVersion": "2.9.10",
+          "FixedVersion": "2.15.0",
+          "Severity": "HIGH",
+          "Source": { "URL": "https://ossindex.sonatype.org/" }
+        },
+        {
+          "VulnerabilityID": "CVE-2024-10018",
+          "PkgName": "snakeyaml",
+          "InstalledVersion": "1.33",
+          "FixedVersion": "2.0",
+          "Severity": "MEDIUM",
+          "Source": { "URL": "https://ossindex.sonatype.org/" }
+        }
+      ]
+    }
+  ]
+}

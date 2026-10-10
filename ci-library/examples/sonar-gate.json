@@ -1,0 +1,9 @@
+{
+  "projectStatus": { "status": "OK" },
+  "conditions": [
+    { "status": "OK", "metricKey": "coverage", "actualValue": "81.4", "periodType": "Leak", "comparator": "GT", "error": "false", "value": "40" },
+    { "status": "OK", "metricKey": "duplicated_lines_density", "actualValue": "3.1", "periodType": "Leak", "comparator": "LT", "error": "false", "value": "3" },
+    { "status": "OK", "metricKey": "security_rating", "actualValue": "1.0", "periodType": "Leak", "comparator": "GT", "error": "false", "value": "1" },
+    { "status": "OK", "metricKey": "new_violations", "actualValue": "0", "periodType": "Leak", "comparator": "GT", "error": "false", "value": "0" }
+  ]
+}

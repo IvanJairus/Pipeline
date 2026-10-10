@@ -3,3 +3,17 @@ _raw/
 *.pyc
 __pycache__/
 .DS_Store
+
+# Dihasilkan oleh replay.sh dan oleh job pipeline di runner; bukan isi repo.
+build-info.json
+gate-verdict.json
+gate-summary.txt
+image-digest.txt
+metrics.prom
+sbom.json
+target/
+rendered/
+trivy-report.json
+sonar-gate.json
+leaks.json
+.selftest-*.json
