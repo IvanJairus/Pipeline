@@ -1,0 +1,323 @@
+# Template pipeline untuk layanan backend (Java, artifact jar, tier 1).
+#
+# Di-include oleh ci-library/gateway.yml lewat routing CI_PROJECT_ID. Developer
+# tidak mengubah file ini; yang diubah developer hanya release.json di repo-nya.
+#
+# ── Cara baca file ini ──────────────────────────────────────────────────────
+# Urutan stage bukan hiasan. Setiap job menyatakan kebutuhannya sendiri lewat
+# `needs:`, jadi GitLab menjalankan apa yang BISA jalan, bukan apa yang datang
+# duluan di daftar. Itu sebabnya `scan:sbom-index` tidak menunggu `quality`,
+# sementara `deploy-sit` menunggu dua hal sekaligus: verdict gate dan image digest.
+#
+# Semua job memanggil script di ci-library/scripts atau tool di ci-library/tools.
+# Tidak ada logika yang ditulis inline dua kali. Kalau sebuah perintah muncul di
+# dua job, perintah itu punya tempat sendiri di repo ini.
+#
+# ── Tentang data di file ini ────────────────────────────────────────────────
+# Nama project, namespace, URL dan ID di bawah sintetis. Konvensinya sama seperti
+# pita project ID 1001-1999 di gateway.yml dan rentang IP 10.20.x di tempat lain:
+# bentuknya nyata, isinya tidak. scripts/check-sanitised.sh menjaganya begitu.
+
+image: maven:3.9-eclipse-temurin-17
+
+variables:
+  GIT_DEPTH: "0"                    # version stamp butuh tag, jadi tidak boleh shallow
+  GIT_STRATEGY: fetch
+  MAVEN_CLI_OPTS: "--batch-mode --errors --show-version --no-transfer-progress"
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  REGISTRY: "registry.example.internal/platform"
+  VAULT_ADDR: "https://vault.example.internal"
+  TIER: "1"
+
+# Cache bersama untuk semua job build/test. Key-nya SHA dari pom.xml, bukan
+# $CI_COMMIT_REF_SLUG: branch berbeda dengan dependency yang sama harus saling
+# memakai, dan branch yang dependency-nya berubah tidak boleh ikut cache basi.
+cache:
+  key:
+    files:
+      - pom.xml
+  paths:
+    - .m2/repository
+  policy: pull-push
+
+stages:
+  - build
+  - test
+  - scan
+  - quality
+  - gate
+  - deploy
+  - promote
+  - feedback
+
+# ── build ────────────────────────────────────────────────────────────────────
+
+build:release-stamp:
+  stage: build
+  needs: []
+  script:
+    - python3 ci-library/tools/release_stamp.py
+      --tag-prefix "R"
+      --output "build-info.json"
+      --audit-line
+  artifacts:
+    paths:
+      - build-info.json
+    expire_in: 4 weeks
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+build:maven-package:
+  stage: build
+  needs:
+    - job: build:release-stamp
+      artifacts: true
+  script:
+    - bash ci-library/scripts/build-maven.sh package
+  artifacts:
+    when: always
+    paths:
+      - target/*.jar
+      - target/surefire-reports/
+    expire_in: 1 week
+  retry:
+    max: 1
+    when: runner_system_failure
+
+build:docker-image:
+  stage: build
+  needs:
+    - job: build:maven-package
+      artifacts: true
+    - job: build:release-stamp
+      artifacts: true
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  script:
+    - bash ci-library/scripts/publish-artifact.sh push
+  # Digest dibaca dari file yang ditulis Kaniko, bukan dari output `docker push`,
+  # supaya job berikutnya punya identitas image yang tidak bisa salah salin.
+  artifacts:
+    paths:
+      - image-digest.txt
+    expire_in: 4 weeks
+
+# ── test ─────────────────────────────────────────────────────────────────────
+
+test:unit:
+  stage: test
+  needs:
+    - job: build:maven-package
+      artifacts: true
+  script:
+    - bash ci-library/scripts/build-maven.sh test
+  artifacts:
+    reports:
+      junit: target/surefire-reports/TEST-*.xml
+
+test:contract:
+  stage: test
+  needs:
+    - job: build:maven-package
+      artifacts: true
+  script:
+    - bash ci-library/scripts/build-maven.sh verify -Pcontracts
+  artifacts:
+    when: always
+    reports:
+      junit: target/cucumber-reports/*.xml
+
+# ── scan ─────────────────────────────────────────────────────────────────────
+# Ketiganya paralel dan tidak saling menunggu. Yang menunggu hasil ketiganya
+# adalah gate, bukan satu sama lain.
+
+scan:sast-semgrep:
+  stage: scan
+  needs: []
+  image: semgrep/semgrep:1.79.0
+  script:
+    - semgrep ci --config auto --sarif-file-output semgrep.sarif
+  artifacts:
+    when: always
+    paths:
+      - semgrep.sarif
+    expire_in: 4 weeks
+  allow_failure: true
+
+scan:secret-detect:
+  stage: scan
+  needs: []
+  image: zricethezav/gitleaks:v8.18.4
+  script:
+    - gitleaks detect --source . --redact --report-format json --report-path leaks.json
+  artifacts:
+    when: always
+    paths:
+      - leaks.json
+
+scan:container-trivy:
+  stage: scan
+  needs:
+    - job: build:docker-image
+      artifacts: true
+  image: aquasec/trivy:0.53.0
+  variables:
+    TRIVY_SERVER: "http://trivy-server.platform.svc.cluster.local:4954"
+  script:
+    - bash ci-library/scripts/run-scan.sh image
+  artifacts:
+    when: always
+    paths:
+      - trivy-report.json
+    expire_in: 4 weeks
+
+scan:sbom-index:
+  stage: scan
+  # Butuh jar DAN image, jadi ia menunggu dua cabang sekaligus - tapi tidak
+  # menunggu unit test. Menunggu semuanya hanya menunda feedback.
+  needs:
+    - job: build:maven-package
+      artifacts: true
+    - job: build:docker-image
+      artifacts: true
+  image: alpine/syft:v1.9.0
+  script:
+    - syft "dir:target" -o cyclonedx-json=sbom.json
+    - syft "oci:$REGISTRY/$CI_PROJECT_NAME@$(cat image-digest.txt)" -o cyclonedx-json >> sbom.json
+    - python3 ci-library/tools/release_stamp.py --verify-sbom sbom.json
+  artifacts:
+    paths:
+      - sbom.json
+    expire_in: 13 weeks
+
+# ── quality ──────────────────────────────────────────────────────────────────
+
+quality:sonarqube-checks:
+  stage: quality
+  needs:
+    - job: test:unit
+      artifacts: true
+    - job: scan:sast-semgrep
+      artifacts: true
+  image: sonarsource/sonar-scanner-cli:10
+  script:
+    - sonar-scanner -Dsonar.host.url="$SONAR_HOST" -Dsonar.login="$SONAR_TOKEN"
+    - sleep 20                       # menunggu webhook quality gate sampai
+    - bash ci-library/scripts/run-scan.sh quality-gate
+  artifacts:
+    paths:
+      - sonar-gate.json
+
+# ── gate ─────────────────────────────────────────────────────────────────────
+# Satu-satunya tempat keputusan diambil. Job ini tidak memanggil API environment
+# apa pun: ia membaca artefak, membandingkannya dengan ambang yang sama dengan
+# yang dipakai Jenkins, lalu menulis verdict.
+
+gate:release-rules:
+  stage: gate
+  needs:
+    - job: scan:container-trivy
+      artifacts: true
+    - job: scan:secret-detect
+      artifacts: true
+    - job: quality:sonarqube-checks
+      artifacts: true
+    - job: build:release-stamp
+      artifacts: true
+  image: groovy:4.0-jdk17
+  script:
+    - groovy -cp shared-library/src ci-library/scripts/run-gate.groovy
+      --manifest release.json
+      --scan trivy-report.json
+      --quality sonar-gate.json
+      --build build-info.json
+  artifacts:
+    when: always
+    paths:
+      - gate-verdict.json
+      - gate-summary.txt
+    expire_in: 13 weeks
+
+gate:ticket-sync:
+  stage: gate
+  # `when: always` di sini yang membuat tiket tetap bergerak saat gate menolak.
+  # Versi tanpa baris itu hanya meninggalkan jejak pada pipeline yang hijau.
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+  when: on_success
+  allow_failure: true
+  script:
+    - bash ci-library/scripts/ticket-sync.sh post
+  environment:
+    name: ticket/$CI_MERGE_REQUEST_IID
+
+# ── deploy ───────────────────────────────────────────────────────────────────
+
+deploy:sit:
+  stage: deploy
+  resource_group: sit            # satu deploy SIT pada satu waktu, tanpa pengecualian
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+    - job: build:docker-image
+      artifacts: true
+  script:
+    - bash ci-library/scripts/setup-vault-jwt.sh issue
+    - bash ci-library/scripts/deploy.sh apply --env sit --digest "$(cat image-digest.txt)"
+    - bash ci-library/scripts/deploy.sh wait --env sit --timeout 300
+  environment:
+    name: sit
+    url: https://sit.$CI_PROJECT_NAME.example.internal
+  when: on_success
+
+# ── promote ──────────────────────────────────────────────────────────────────
+# Manual di level GitLab, dan ditolak oleh aturan promotion kalau ticket-nya tidak
+# membawa rantai approval yang lengkap. Tombol ada di sini; haknya ada di gate.
+
+promote:uat:
+  stage: promote
+  needs:
+    - job: deploy:sit
+    - job: gate:release-rules
+      artifacts: true
+  script:
+    - bash ci-library/scripts/deploy.sh promote --from sit --to uat
+  environment:
+    name: uat
+  when: manual
+  allow_failure: false
+
+promote:prod:
+  stage: promote
+  resource_group: prod
+  needs:
+    - job: promote:uat
+    - job: gate:release-rules
+      artifacts: true
+  script:
+    - bash ci-library/scripts/deploy.sh promote --from uat --to prod --wave-plan
+  environment:
+    name: prod
+  when: manual
+  allow_failure: false
+
+# ── feedback ─────────────────────────────────────────────────────────────────
+
+feedback:observability:
+  stage: feedback
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+  # Selalu jalan, termasuk saat pipeline merah: angka kegagalan justru yang
+  # paling dibutuhkan dashboard.
+  when: always
+  script:
+    - bash ci-library/scripts/observability-push.sh pipeline
+  artifacts:
+    when: always
+    paths:
+      - metrics.prom

@@ -1,0 +1,143 @@
+# Template pipeline untuk aplikasi mobile: android (apk) dan ios (ipa).
+#
+# Mobile tidak lewat registry internal dan tidak punya environment server. Yang
+# di-deploy adalah sebuah berkas ke store pihak ketiga, dan store tidak mengenal
+# rollback: begitu sebuah build diterima pengguna, ia tinggal di sana. Karena itu
+# file ini satu-satunya template yang tanda tangannya diminta SEBELUM artifact
+# dianggap ada, dan satu-satunya yang stage terakhirnya bukan deploy melainkan
+# upload ke jalur distribusi yang bisa ditarik kembali (internal testing track).
+
+image: eclipse-temurin:17-jdk
+
+variables:
+  GIT_DEPTH: "0"
+  ANDROID_HOME: "$CI_PROJECT_DIR/android-sdk"
+
+cache:
+  key: "mobile-$CI_COMMIT_REF_SLUG"
+  paths:
+    - android-sdk/
+    - gradle/wrapper/dists/
+    - .gradle/
+
+stages:
+  - build
+  - test
+  - scan
+  - gate
+  - sign
+  - distribute
+  - feedback
+
+build:release-stamp:
+  stage: build
+  needs: []
+  script:
+    - python3 ci-library/tools/release_stamp.py --tag-prefix "M" --output "build-info.json"
+  artifacts:
+    paths:
+      - build-info.json
+
+build:apk:
+  stage: build
+  needs:
+    - job: build:release-stamp
+      artifacts: true
+  tags: [android]
+  script:
+    - ./gradlew assembleRelease -PbuildInfo="$(cat build-info.json)"
+  artifacts:
+    paths:
+      - app/build/outputs/apk/release/*.apk
+    expire_in: 4 weeks
+
+test:unit:
+  stage: test
+  needs:
+    - job: build:apk
+      artifacts: true
+  tags: [android]
+  script:
+    - ./gradlew testReleaseUnitTest connectedDebugAndroidTest --continue
+  artifacts:
+    when: always
+    reports:
+      junit: app/build/test-results/**/*.xml
+
+scan:secrets-in-bundle:
+  stage: scan
+  # Kunci API yang ikut terkompilasi ke dalam bundle tidak bisa dicabut setelah
+  # aplikasi sampai ke perangkat pengguna. Scan source saja tidak cukup: yang
+  # harus dibaca adalah artefak akhirnya.
+  needs:
+    - job: build:apk
+      artifacts: true
+  image: zricethezav/gitleaks:v8.18.4
+  script:
+    - gitleaks detect --source . --redact --report-format json --report-path leaks.json
+    - bash ci-library/scripts/run-scan.sh bundle
+  artifacts:
+    when: always
+    paths:
+      - leaks.json
+      - bundle-scan.json
+
+gate:release-rules:
+  stage: gate
+  needs:
+    - job: scan:secrets-in-bundle
+      artifacts: true
+    - job: build:release-stamp
+      artifacts: true
+  image: groovy:4.0-jdk17
+  script:
+    - groovy -cp shared-library/src ci-library/scripts/run-gate.groovy
+      --manifest release.json --scan bundle-scan.json --artifact-only
+  artifacts:
+    when: always
+    paths:
+      - gate-verdict.json
+      - gate-summary.txt
+
+sign:apk:
+  stage: sign
+  resource_group: mobile-keystore
+  needs:
+    - job: build:apk
+      artifacts: true
+    - job: gate:release-rules
+      artifacts: true
+  tags: [android]
+  script:
+    # Kunci diambil sebagai lease berumur pendek dari Vault, dipakai, lalu
+    # dicabut di after_script. File signing.properties tidak pernah commit.
+    - bash ci-library/scripts/setup-vault-jwt.sh issue --for keystore
+    - bash ci-library/scripts/publish-artifact.sh sign
+  after_script:
+    - bash ci-library/scripts/setup-vault-jwt.sh revoke || true
+  artifacts:
+    paths:
+      - app/build/outputs/apk/release/*-signed.apk
+
+distribute:internal-track:
+  stage: distribute
+  needs:
+    - job: sign:apk
+      artifacts: true
+  # Manual: naik ke track internal adalah keputusan orang, dan jejaknya harus
+  # bisa ditunjuk ke siapa yang menekan tombolnya.
+  when: manual
+  allow_failure: false
+  script:
+    - bash ci-library/scripts/publish-artifact.sh distribute --track internal
+  environment:
+    name: mobile/internal
+
+feedback:observability:
+  stage: feedback
+  when: always
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+  script:
+    - bash ci-library/scripts/observability-push.sh pipeline

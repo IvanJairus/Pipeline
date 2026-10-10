@@ -1,0 +1,160 @@
+# Template pipeline untuk layer platform: config server, service discovery, edge.
+#
+# Yang membedakan bukan runtime-nya, tapi apa yang dianggap rusak. Untuk layanan
+# bisnis, kegagalan berarti satu tim terganggu. Untuk layer platform, kegagalan
+# berarti TIDAK ADA layanan yang bisa mencari satu sama lain. Karena itu file ini
+# punya satu hal yang tidak dimiliki template lain: langkah rollback yang dijalankan
+# otomatis oleh job deploy itu sendiri, bukan oleh manusia yang membaca log jam dua
+# pagi.
+
+image: maven:3.9-eclipse-temurin-17
+
+variables:
+  GIT_DEPTH: "0"
+  REGISTRY: "registry.example.internal/platform"
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  TIER: "2"
+
+cache:
+  key:
+    files:
+      - pom.xml
+  paths:
+    - .m2/repository
+  policy: pull-push
+
+stages:
+  - build
+  - test
+  - scan
+  - gate
+  - deploy
+  - promote
+  - feedback
+
+build:release-stamp:
+  stage: build
+  needs: []
+  script:
+    - python3 ci-library/tools/release_stamp.py --tag-prefix "P" --output "build-info.json"
+  artifacts:
+    paths:
+      - build-info.json
+
+build:maven-package:
+  stage: build
+  needs:
+    - job: build:release-stamp
+      artifacts: true
+  script:
+    - bash ci-library/scripts/build-maven.sh package
+  artifacts:
+    paths:
+      - target/*.jar
+
+build:docker-image:
+  stage: build
+  needs:
+    - job: build:maven-package
+      artifacts: true
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  script:
+    - bash ci-library/scripts/publish-artifact.sh push
+  artifacts:
+    paths:
+      - image-digest.txt
+
+test:unit:
+  stage: test
+  needs:
+    - job: build:maven-package
+      artifacts: true
+  script:
+    - bash ci-library/scripts/build-maven.sh test
+  artifacts:
+    when: always
+    reports:
+      junit: target/surefire-reports/TEST-*.xml
+
+test:config-contract:
+  stage: test
+  # Kontrak config diverifikasi terhadap skema yang dipakai 40-an repo lain.
+  # Perubahan satu kunci di config server bisa membuat layanan orang lain
+  # gagal start, dan itu harus ketahuan di sini, bukan di namespace produksi.
+  needs: []
+  script:
+    - python3 ci-library/tools/release_stamp.py --check-config config/schema.json
+  artifacts:
+    when: always
+    paths:
+      - config-contract.json
+
+scan:container-trivy:
+  stage: scan
+  needs:
+    - job: build:docker-image
+      artifacts: true
+  image: aquasec/trivy:0.53.0
+  script:
+    - bash ci-library/scripts/run-scan.sh image
+  artifacts:
+    when: always
+    paths:
+      - trivy-report.json
+
+gate:release-rules:
+  stage: gate
+  needs:
+    - job: scan:container-trivy
+      artifacts: true
+    - job: build:release-stamp
+      artifacts: true
+  image: groovy:4.0-jdk17
+  script:
+    - groovy -cp shared-library/src ci-library/scripts/run-gate.groovy
+      --manifest release.json --scan trivy-report.json
+  artifacts:
+    when: always
+    paths:
+      - gate-verdict.json
+      - gate-summary.txt
+
+deploy:sit:
+  stage: deploy
+  resource_group: platform-sit
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+    - job: build:docker-image
+      artifacts: true
+  script:
+    - bash ci-library/scripts/deploy.sh apply --env sit --digest "$(cat image-digest.txt)"
+    - bash ci-library/scripts/deploy.sh wait --env sit --timeout 240 --auto-rollback
+  environment:
+    name: sit
+  # Rollback otomatis hanya untuk layer platform. Untuk layanan bisnis ia akan
+  # menyembunyikan penyebab kegagalan dari tim yang harus memperbaikinya.
+  after_script:
+    - bash ci-library/scripts/observability-push.sh deploy || true
+
+promote:uat:
+  stage: promote
+  needs:
+    - job: deploy:sit
+  script:
+    - bash ci-library/scripts/deploy.sh promote --from sit --to uat
+  environment:
+    name: uat
+  when: manual
+  allow_failure: false
+
+feedback:observability:
+  stage: feedback
+  when: always
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+  script:
+    - bash ci-library/scripts/observability-push.sh pipeline

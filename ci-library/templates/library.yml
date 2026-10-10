@@ -1,0 +1,134 @@
+# Template pipeline untuk library: entities, common, messaging-lib.
+#
+# File ini sengaja TIDAK punya stage deploy. Library tidak punya environment
+# tujuan - ia hidup di dalam jar orang lain. Yang bisa dilakukan sebuah library
+# adalah menaikkan versi dan menunggu dipakai.
+#
+# Karena itu promotion untuk project di blok ini ditolak oleh aturan gate, bukan
+# oleh ketiadaan tombol. Bedanya penting: kalau tombolnya saja yang tidak ada,
+# seseorang yang cukup putus asa akan membuat pipeline sendiri yang punya tombol.
+# Kalau aturannya yang menolak, jalur itu tertutup untuk semua orang, termasuk
+# untuk orang yang punya hak.
+
+image: maven:3.9-eclipse-temurin-17
+
+variables:
+  GIT_DEPTH: "0"
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+
+cache:
+  key:
+    files:
+      - pom.xml
+  paths:
+    - .m2/repository
+  policy: pull-push
+
+stages:
+  - build
+  - test
+  - quality
+  - gate
+  - publish
+  - feedback
+
+build:release-stamp:
+  stage: build
+  needs: []
+  script:
+    - python3 ci-library/tools/release_stamp.py --tag-prefix "L" --output "build-info.json"
+  artifacts:
+    paths:
+      - build-info.json
+
+build:maven-package:
+  stage: build
+  needs:
+    - job: build:release-stamp
+      artifacts: true
+  script:
+    - bash ci-library/scripts/build-maven.sh package -DskipTests
+  artifacts:
+    paths:
+      - target/*.jar
+      - target/*.pom
+
+test:unit:
+  stage: test
+  needs:
+    - job: build:maven-package
+      artifacts: true
+  script:
+    - bash ci-library/scripts/build-maven.sh test
+  artifacts:
+    when: always
+    reports:
+      junit: target/surefire-reports/TEST-*.xml
+
+test:compat:
+  stage: test
+  # Konsumen library ini punya branch sendiri; compat check menjalakan test
+  # konsumen utama terhadap jar yang baru dibangun. Tanpa langkah ini, sebuah
+  # perubahan tanda tangan metode baru ketahuan saat tim lain build, bukan saat
+  # library-nya berubah.
+  needs:
+    - job: build:maven-package
+      artifacts: true
+  script:
+    - bash ci-library/scripts/build-maven.sh verify -Pcompat
+  allow_failure: true
+
+quality:sonarqube-checks:
+  stage: quality
+  needs:
+    - job: test:unit
+      artifacts: true
+  image: sonarsource/sonar-scanner-cli:10
+  script:
+    - sonar-scanner -Dsonar.host.url="$SONAR_HOST"
+    - bash ci-library/scripts/run-scan.sh quality-gate
+  artifacts:
+    paths:
+      - sonar-gate.json
+
+gate:release-rules:
+  stage: gate
+  needs:
+    - job: quality:sonarqube-checks
+      artifacts: true
+    - job: build:release-stamp
+      artifacts: true
+  image: groovy:4.0-jdk17
+  script:
+    - groovy -cp shared-library/src ci-library/scripts/run-gate.groovy
+      --manifest release.json --quality sonar-gate.json --no-environment
+  artifacts:
+    when: always
+    paths:
+      - gate-verdict.json
+      - gate-summary.txt
+
+publish:maven:
+  stage: publish
+  resource_group: maven-library
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+    - job: build:maven-package
+      artifacts: true
+  script:
+    - bash ci-library/scripts/publish-artifact.sh maven
+  rules:
+    # Hanya branch default yang boleh menulis ke registry. Sebuah branch fitur
+    # yang menghasilkan artifact dengan versi yang sama akan meracuni konsumen
+    # yang memakai LATEST, dan itu tidak bisa ditarik kembali.
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+feedback:observability:
+  stage: feedback
+  when: always
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+  script:
+    - bash ci-library/scripts/observability-push.sh pipeline

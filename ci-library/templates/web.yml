@@ -1,0 +1,218 @@
+# Template pipeline untuk frontend web (artifact image nginx, tier 3).
+#
+# Bedanya dengan backend.yml bukan cuma runtime: urutan deploy-nya berbeda
+# makna. Sebuah release web mengikuti backend, bukan mendahuluinya, karena
+# bundle JS yang memanggil endpoint yang belum ada adalah error 500 di layar
+# pengguna. Karena itu tier web naik satu tingkat di DeploymentPlan dan gate
+# promotion menolak wave prod yang menaruh web sebelum backend-nya naik.
+
+image: node:20-alpine
+
+variables:
+  GIT_DEPTH: "0"
+  REGISTRY: "registry.example.internal/platform"
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+
+cache:
+  key:
+    files:
+      - package-lock.json
+  paths:
+    - .npm/
+  policy: pull-push
+
+stages:
+  - build
+  - test
+  - scan
+  - quality
+  - gate
+  - deploy
+  - promote
+  - feedback
+
+build:release-stamp:
+  stage: build
+  needs: []
+  script:
+    - python3 ci-library/tools/release_stamp.py --tag-prefix "W" --output "build-info.json"
+  artifacts:
+    paths:
+      - build-info.json
+    expire_in: 4 weeks
+
+build:bundle:
+  stage: build
+  needs:
+    - job: build:release-stamp
+      artifacts: true
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build -- --build-info "$(cat build-info.json | tr -d '\n')"
+  artifacts:
+    paths:
+      - dist/
+      - build-info.json
+    expire_in: 1 week
+
+build:docker-image:
+  stage: build
+  needs:
+    - job: build:bundle
+      artifacts: true
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  script:
+    - bash ci-library/scripts/publish-artifact.sh push
+  artifacts:
+    paths:
+      - image-digest.txt
+    expire_in: 4 weeks
+
+test:unit:
+  stage: test
+  needs:
+    - job: build:bundle
+      artifacts: true
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm test -- --reporters=default --reporters=jest-junit
+  artifacts:
+    when: always
+    reports:
+      junit: junit.xml
+
+test:a11y:
+  stage: test
+  # Rantai aksesibilitas dijalankan di CI karena setelah rilis ia tidak akan
+  # dijalankan siapa pun. Ambangnya dipakai bersama dengan gate, bukan angka
+  # yang diketik ulang di sini.
+  needs:
+    - job: build:bundle
+      artifacts: true
+  image: mcr.microsoft.com/playwright:v1.45.0-jammy
+  script:
+    - npx axe-cli "http://localhost:8080" --exit || true
+    - npm run a11y:report
+  artifacts:
+    when: always
+    paths:
+      - a11y-results.json
+
+scan:container-trivy:
+  stage: scan
+  needs:
+    - job: build:docker-image
+      artifacts: true
+  image: aquasec/trivy:0.53.0
+  script:
+    - bash ci-library/scripts/run-scan.sh image
+  artifacts:
+    when: always
+    paths:
+      - trivy-report.json
+
+scan:secret-detect:
+  stage: scan
+  needs: []
+  image: zricethezav/gitleaks:v8.18.4
+  script:
+    - gitleaks detect --source . --redact --report-format json --report-path leaks.json
+  artifacts:
+    paths:
+      - leaks.json
+
+quality:sonarqube-checks:
+  stage: quality
+  needs:
+    - job: test:unit
+      artifacts: true
+  image: sonarsource/sonar-scanner-cli:10
+  script:
+    - sonar-scanner -Dsonar.host.url="$SONAR_HOST" -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+    - bash ci-library/scripts/run-scan.sh quality-gate
+  artifacts:
+    paths:
+      - sonar-gate.json
+
+gate:release-rules:
+  stage: gate
+  needs:
+    - job: scan:container-trivy
+      artifacts: true
+    - job: quality:sonarqube-checks
+      artifacts: true
+    - job: build:release-stamp
+      artifacts: true
+  image: groovy:4.0-jdk17
+  script:
+    - groovy -cp shared-library/src ci-library/scripts/run-gate.groovy
+      --manifest release.json --scan trivy-report.json --quality sonar-gate.json
+  artifacts:
+    when: always
+    paths:
+      - gate-verdict.json
+      - gate-summary.txt
+
+gate:ticket-sync:
+  stage: gate
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+  when: on_success
+  allow_failure: true
+  script:
+    - bash ci-library/scripts/ticket-sync.sh post
+
+deploy:sit:
+  stage: deploy
+  resource_group: sit
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+    - job: build:docker-image
+      artifacts: true
+  script:
+    - bash ci-library/scripts/deploy.sh apply --env sit --digest "$(cat image-digest.txt)"
+    - bash ci-library/scripts/deploy.sh wait --env sit --timeout 180
+  environment:
+    name: sit
+
+promote:uat:
+  stage: promote
+  needs:
+    - job: deploy:sit
+  script:
+    - bash ci-library/scripts/deploy.sh promote --from sit --to uat
+  environment:
+    name: uat
+  when: manual
+  allow_failure: false
+
+promote:prod:
+  stage: promote
+  resource_group: prod
+  needs:
+    - job: promote:uat
+    - job: gate:release-rules
+      artifacts: true
+  # Web tidak pernah naik sendirian: wave plan menolak tier 3 di depan tier 1
+  # yang belum ada di environment tujuan.
+  script:
+    - bash ci-library/scripts/deploy.sh promote --from uat --to prod --require-backend
+  environment:
+    name: prod
+  when: manual
+  allow_failure: false
+
+feedback:observability:
+  stage: feedback
+  when: always
+  needs:
+    - job: gate:release-rules
+      artifacts: true
+  script:
+    - bash ci-library/scripts/observability-push.sh pipeline
