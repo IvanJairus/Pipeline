@@ -68,5 +68,8 @@ for (const c of fixture.cases) {
 }
 
 const total = fixture.cases.length + 1;
-console.log(`\n${total - failed}/${total} agree with the Groovy fixture`);
+// The +1 is the SHA-256 probe above: it is a real assertion and it can fail this
+// run, so it is counted. Saying "31 golden cases" would round a hash check into
+// the fixture, and the fixture is the thing a reader can go and read.
+console.log(`\n${total - failed}/${total} pass (${fixture.cases.length} golden cases + the hash probe)`);
 process.exit(failed === 0 ? 0 : 1);
