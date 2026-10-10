@@ -60,7 +60,7 @@ jobs:
               print("parsed:", f)
           assert files, "tidak ada YAML untuk diperiksa"
           PY
-      - name: every include: local target exists
+      - name: every local include target exists
         run: |
           set -e
           python3 - <<'PY'
