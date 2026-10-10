@@ -111,7 +111,11 @@ def json = JsonOutput.prettyPrint(JsonOutput.toJson([
     cases: produced,
 ])) + '\n'
 
-def target = new File('../rules/fixture.json').canonicalFile
+// Resolved by searching, not by assuming the working directory: the CI job runs
+// this from the repository root and a developer runs it from shared-library/.
+def target = ['rules/fixture.json', '../rules/fixture.json', '../../rules/fixture.json']
+    .collect { new File(it).canonicalFile }
+    .find { it.exists() } ?: new File('rules/fixture.json').canonicalFile
 
 if (write) {
     target.parentFile.mkdirs()
