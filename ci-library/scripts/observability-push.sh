@@ -37,11 +37,26 @@ DRY_RUN="${DRY_RUN:-0}"
 
 die() { log_fail "$1" "${@:2}"; exit 1; }
 
-metric() { printf '%s %s\n' "$1" "$2" >> "$METRICS_FILE"; }
+# Every metric line is named as it is written: the value alone is not traceable
+# to the sample, so the name and the labels go into the log next to it.
+metric() {
+  local series="$1" value="$2" name labels
+  printf '%s %s\n' "$series" "$value" >> "$METRICS_FILE"
+  name="${series%%\{*}"
+  case "$series" in
+    *\{*) labels="${series#*\{}"; labels="${labels%\}}" ;;
+    *) labels="none" ;;
+  esac
+  log INFO "metric name=$name labels=${labels:-none} value=$value"
+}
+
+# The number of series actually on disk, counted from the file rather than from
+# a counter that could be incremented without writing.
+metric_count() { printf '%s' "$(( $(wc -l < "$METRICS_FILE" 2>/dev/null || echo 0) ))"; }
 
 push() {
   if [ -z "$PUSHGATEWAY_URL" ]; then
-    log_warn "skipped reason=no_pushgateway_url file=$METRICS_FILE metrics=$(( $(wc -l < "$METRICS_FILE") ))"
+    log_warn "skipped reason=no_pushgateway_url file=$METRICS_FILE metrics=$(metric_count)"
     return 0
   fi
   if [ "$DRY_RUN" = "1" ]; then log INFO "would push url=$PUSHGATEWAY_URL file=$METRICS_FILE"; return 0; fi
@@ -85,6 +100,7 @@ cmd_pipeline() {
   fi
 
   log INFO "audit release=$version project=$project passed=$passed warnings=$warns pipeline=${CI_PIPELINE_ID:-local} metrics=$METRICS_FILE"
+  log INFO "written file=$METRICS_FILE metrics=$(metric_count)"
   push
 }
 
@@ -100,6 +116,7 @@ cmd_deploy() {
   else
     log_warn "skipped metric=deploy_ready_seconds reason=not_measured env=$env"
   fi
+  log INFO "written file=$METRICS_FILE metrics=$(metric_count)"
   push
 }
 
@@ -128,6 +145,9 @@ selftest() {
   never_says metrics.prom "duration_seconds" "duration written even with no data"
   says err.txt "reason=not_reported_by_runner" "the reason for holding back not stated"
   says err.txt "skipped reason=no_pushgateway_url" "an empty pushgateway not reported"
+  says err.txt 'metric name=gateway_release_passed labels=project="core-api",version="R1.4.3" value=1' "a series was written without being named"
+  says err.txt 'metric name=gateway_gate_failures labels=project="core-api" value=0' "the gate reason count was not named"
+  says err.txt "written file=metrics.prom metrics=3" "the file and the number of lines in it were not reported"
 
   # With a real duration, the number passes through unchanged.
   try env CI_PIPELINE_ID=1421 CI_PIPELINE_DURATION_SECONDS=412 bash "$SCRIPT_DIR/observability-push.sh" pipeline
@@ -141,6 +161,10 @@ selftest() {
   # Deploy without a measurement: no number, and the reason is stated.
   try env bash "$SCRIPT_DIR/observability-push.sh" deploy --env sit
   says err.txt "reason=not_measured" "a deploy with no duration leaves the reason unstated"
+
+  # Deploy with a measurement: the series is named the moment it is written.
+  try env bash "$SCRIPT_DIR/observability-push.sh" deploy --env sit --seconds 93
+  says err.txt 'metric name=gateway_deploy_ready_seconds labels=project="core-api",env="sit" value=93' "a measured deploy was not named"
 
   cd /; rm -rf "$tmp"
   if [ "$fails" = "0" ]; then echo "observability selftest: ok" >&2; return 0; fi

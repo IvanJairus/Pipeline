@@ -87,7 +87,21 @@ PY
     why="$(python3 -c 'import json,sys;print("; ".join(json.load(open(sys.argv[1],encoding="utf-8")).get("failures") or ["gate did not pass"]))' "$VERDICT_FILE")"
     die gate_refused "env=$env reason=$why"
   fi
+  local summary
+  summary="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf-8")).get("summary","(no summary)"))' "$VERDICT_FILE")"
+  log INFO "verdict summary=$summary"
   log INFO "verdict checked file=$VERDICT_FILE env=$env allowed=true"
+}
+
+# Checked before anything is sent: a runner without kubectl, or pointed at the
+# wrong context, fails here with the context named instead of halfway through a
+# rollout in a namespace nobody meant to touch.
+preflight() {
+  local env="$1" bin
+  bin="$(command -v "$KUBECTL" || true)"
+  [ -n "$bin" ] || die no_kubectl "binary=$KUBECTL env=$env"
+  log INFO "preflight kubectl=$bin context=${KUBE_CONTEXT:-ci-runner} namespace=$(namespace_for "$env")"
+  [ -f "$TEMPLATE" ] || die no_template "file=$TEMPLATE"
 }
 
 # Change window: Monday through Thursday, 09:00-17:00. Not superstition: these
@@ -115,9 +129,11 @@ cmd_apply() {
   while [ $# -gt 0 ]; do case "$1" in
     --env) env="$2"; shift 2;; --digest) digest="$2"; shift 2;; *) die bad_arg "arg=$1";; esac; done
   need_env "$env"; require_digest "$digest"
+  preflight "$env"
   verdict_allows "$env"
   mkdir -p rendered
   render "$env" "$digest" "rendered/$env.yaml"
+  log DEBUG "apply flags=server-side file=rendered/$env.yaml"
   run "$KUBECTL" -n "$(namespace_for "$env")" apply --server-side -f "rendered/$env.yaml"
   log INFO "applied env=$env digest=${digest:7:12} namespace=$(namespace_for "$env")"
 }
@@ -127,8 +143,10 @@ cmd_wait() {
   while [ $# -gt 0 ]; do case "$1" in
     --env) env="$2"; shift 2;; --timeout) timeout="$2"; shift 2;; --auto-rollback) auto=1; shift;; *) die bad_arg "arg=$1";; esac; done
   need_env "$env"
+  preflight "$env"
+  log DEBUG "rollout requested env=$env timeout=${timeout}s autoRollback=$auto"
   if run "$KUBECTL" -n "$(namespace_for "$env")" rollout status deployment/"$CI_PROJECT_NAME" --timeout="${timeout}s"; then
-    log INFO "ready env=$env timeout=${timeout}s"
+    log INFO "ready env=$env timeout=${timeout}s replicas=${REPLICAS:-3}"
     return 0
   fi
   log_error "failed reason=rollout_timeout env=$env timeout=${timeout}s"
@@ -144,14 +162,19 @@ cmd_promote() {
   while [ $# -gt 0 ]; do case "$1" in
     --from) from="$2"; shift 2;; --to) to="$2"; shift 2;; --require-backend) require_backend=1; shift;; *) die bad_arg "arg=$1";; esac; done
   need_env "$from"; need_env "$to"
-  if [ "$to" = "prod" ] && ! window_open "${NOW_OVERRIDE:-$(date +%u_%H)}"; then
-    die change_window "to=prod outside=window-mon-thu-09-17 escape=CHANGE_WINDOW-0-only-for-tests"
+  local now="${NOW_OVERRIDE:-$(date +%u_%H)}"
+  if [ "$to" = "prod" ]; then
+    log INFO "window env=prod day=${now%_*} hour=${now#*_} enforced=$CHANGE_WINDOW"
+    if ! window_open "$now"; then
+      die change_window "to=prod outside=window-mon-thu-09-17 escape=CHANGE_WINDOW-0-only-for-tests"
+    fi
   fi
   # The environment ordering rules live in ReleaseRules, not here. All this file
   # does is make sure those rules are actually asked.
   if ! $RULES_CHECK_CMD "$from:$to" > /dev/null 2>&1; then
     die promotion_refused "from=$from to=$to source=ReleaseRules.validatePromotion"
   fi
+  log INFO "rules checked promotion=$from->$to allowed=true"
   if [ "$require_backend" = "1" ]; then
     python3 - "$VERDICT_FILE" <<'PY' || die wave_order "reason=web_before_backend fix=deploy\ the\ backend\ tier\ first"
 import json, sys

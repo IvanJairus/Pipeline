@@ -8,7 +8,8 @@ Three decisions make this file worth using, not merely present:
 
 1. Idempotent. One pipeline can be retried, and a ticket that receives two
    identical comments teaches people to stop reading pipeline comments. The key
-   is a hash of (pipeline, verdict); the server stores what we already sent.
+   is a hash of (pipeline, verdict); this process keeps the keys it has already
+   delivered, and the server stores what was sent before the process started.
 2. A failure is not a reason to withhold the verdict. If the ticket cannot be
    reached, the verdict is still written and the exit code is zero: a gate
    that has already decided must not turn red because of a notification.
@@ -124,24 +125,49 @@ class MissingCredential(Exception):
 
 # ── send ─────────────────────────────────────────────────────────────────────
 
-def send(target: Target, payload: dict, timeout: float = 15.0, attempts: int = 4, sleep=time.sleep) -> tuple[bool, str]:
+# Keys this process has already delivered. One pipeline can be retried, and a
+# ticket that receives the same comment twice teaches people to stop reading
+# pipeline comments, so a key that got through is never sent again here.
+DELIVERED: set[str] = set()
+
+
+def send(
+    target: Target,
+    payload: dict,
+    timeout: float = 15.0,
+    attempts: int = 4,
+    sleep=time.sleep,
+    key: str = "",
+) -> tuple[bool, str]:
     """POST with backoff. Returns (ok, reason).
 
     Only 5xx and network errors are retried. A 4xx means "your request is
     wrong": repeating it four times only delays the person reading the log.
+
+    `key` is the idempotency key. When one has already been delivered to this
+    kind of target in this process, the request is not made a second time.
     """
+    posted = f"{target.kind}|{key}" if key else ""
+    if posted and posted in DELIVERED:
+        log("INFO", f"skipped reason=already_posted key={key} target={target.kind}")
+        return True, "already_posted"
     data = json.dumps(payload).encode()
     last = "not attempted"
     for i in range(1, attempts + 1):
         try:
             req = urllib.request.Request(target.url(), data=data, headers=target.headers(), method="POST")
+            log("INFO", f"request attempt={i} target={target.kind} url={target.url()} bytes={len(data)}" + (f" key={key}" if key else ""))
             with urllib.request.urlopen(req, timeout=timeout) as resp:
+                log("DEBUG", f"response attempt={i} target={target.kind} status={resp.status}")
                 if 200 <= resp.status < 300:
+                    if posted:
+                        DELIVERED.add(posted)
                     log("INFO", f"posted target={target.kind} status={resp.status} attempt={i}")
                     return True, "posted"
                 last = f"status {resp.status}"
         except urllib.error.HTTPError as exc:
             last = f"http {exc.code}"
+            log("DEBUG", f"response attempt={i} target={target.kind} status={exc.code}")
             if 400 <= exc.code < 500:
                 log("ERROR", f"failed reason=client_error target={target.kind} status={exc.code} notRetried=true")
                 return False, last
@@ -190,6 +216,16 @@ def selftest() -> int:
     def ok(cond, name):
         if not cond:
             fails.append(name)
+
+    def captured(fn) -> str:
+        """What one call wrote to the log, so an assertion can be made on it."""
+        import io
+        from contextlib import redirect_stderr
+
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            fn()
+        return buf.getvalue()
 
     key = idempotency_key("1421", "gate passed")
     ok(key.startswith("gate-") and len(key) == 21, "key length is stable")
@@ -241,6 +277,23 @@ def selftest() -> int:
         _Recorder.codes = [201]
         send(tgt, {"body": "content"}, sleep=lambda *_: None)
         ok(_Recorder.hits[0]["token"] == "do-not-print-this", "the token reached the server")
+        ok("do-not-print-this" not in captured(lambda: send(tgt, {"body": "log"}, sleep=lambda *_: None)),
+           "the token was written into the log")
+
+        # Idempotency, made observable: a key that has already been delivered in
+        # this process does not go on the wire again, and the log names the key
+        # that was held back.
+        _Recorder.hits = []
+        _Recorder.codes = [201, 201, 201]
+        idem = "gate-selftest-single"
+        ok(send(tgt, {"body": "first"}, sleep=lambda *_: None, key=idem)[0], "the first delivery posts")
+        ok(len(_Recorder.hits) == 1, f"the first delivery reached the server, got {len(_Recorder.hits)}")
+        held = captured(lambda: send(tgt, {"body": "second"}, sleep=lambda *_: None, key=idem))
+        ok("skipped reason=already_posted key=gate-selftest-single" in held, "the held-back key was not named")
+        ok(len(_Recorder.hits) == 1, f"a delivered key must not reach the server again, got {len(_Recorder.hits)} hits")
+        # Another key is another comment: the ledger holds keys, not targets.
+        ok(send(tgt, {"body": "third"}, sleep=lambda *_: None, key=idem + "-other")[0], "a key nobody delivered yet posts")
+        ok(len(_Recorder.hits) == 2, f"a new key reaches the server, got {len(_Recorder.hits)} hits")
     finally:
         srv.shutdown()
         srv.server_close()
@@ -307,7 +360,7 @@ def main(argv: list[str]) -> int:
 
     delivered = 0
     for tgt in targets:
-        ok, _ = send(tgt, tgt.body(note, verdict))
+        ok, _ = send(tgt, tgt.body(note, verdict), key=run["key"])
         delivered += ok
     if delivered < len(targets):
         # Deliberately does not change the exit code. The verdict was already

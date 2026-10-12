@@ -75,6 +75,14 @@ Map readJson(String path, String label) {
     return new JsonSlurper().parse(f) as Map
 }
 
+// One value, ready to sit after an equals sign: null prints as absent, and a
+// space inside a value is escaped rather than left to break the record. Printed
+// as 0, an unmeasured coverage turns into a story about a team that wrote no
+// tests, when the real story is that no number was sent at all.
+String kv(Object value) {
+    return value == null ? 'absent' : String.valueOf(value).replace(' ', '\\ ')
+}
+
 /*
   Adaptor: trivy-report.json -> the shape GateResult reads.
 
@@ -127,6 +135,43 @@ int run(Map opts) {
     def quality = readJson(opts.quality, 'quality')
     def build = readJson(opts.build, 'build')
 
+    // The SBOM is a separate fact from "no findings": it exists when the file
+    // exists and is not empty, not when the scanner stays quiet.
+    def sbomFile = new File('sbom.json')
+    boolean sbomProduced = sbomFile.exists() && sbomFile.length() > 2
+
+    // One line per input file, saying what was taken out of it. This is written
+    // before the verdict, so a reader can compare the numbers with the answer
+    // instead of having to trust the answer.
+    if (manifest) {
+        log('INFO', "read manifest file=${opts.manifest} releaseTag=${kv(manifest.releaseTag)} " +
+                "services=${(manifest.services ?: []).size()} environments=${(manifest.environments ?: []).size()}")
+    } else {
+        log('INFO', "read manifest file=${opts.manifest ?: 'none'} releaseTag=absent services=absent")
+    }
+    def gateScan = toGateScan(scan, sbomProduced)
+    if (gateScan) {
+        def counts = GateResult.severityCounts(gateScan.findings)
+        log('INFO', "read scan file=${opts.scan} findings=${gateScan.findings.size()} critical=${counts.critical} " +
+                "high=${counts.high} medium=${counts.medium} low=${counts.low} sbom=${gateScan.sbom}" +
+                "${gateScan.error ? ' error=' + kv(gateScan.error) : ''}")
+    } else {
+        log('INFO', "read scan file=${opts.scan ?: 'none'} findings=absent sbom=${sbomProduced}")
+    }
+    def gateQuality = toGateQuality(quality)
+    if (gateQuality) {
+        log('INFO', "read quality file=${opts.quality} status=${kv(gateQuality.status)} " +
+                "coverage=${kv(gateQuality.coverage)} duplication=${kv(gateQuality.duplication)}")
+    } else {
+        log('INFO', "read quality file=${opts.quality ?: 'none'} status=absent coverage=absent duplication=absent")
+    }
+    if (build) {
+        log('INFO', "read build file=${opts.build} version=${kv(build.version)} status=${kv(build.status)} " +
+                "artifacts=${(build.artifacts ?: []).size()} commit=${kv(build.commit)}")
+    } else {
+        log('INFO', "read build file=${opts.build ?: 'none'} version=absent status=absent")
+    }
+
     def problems = []
     if (manifest) {
         def mp = ReleaseRules.validateManifest(manifest)
@@ -143,15 +188,10 @@ int run(Map opts) {
         log(pp ? 'ERROR' : 'INFO', "validatePromotion ${opts.from}->${opts.to} problems=${pp.size()}")
     }
 
-    // The SBOM is a separate fact from "no findings": it exists when the file
-    // exists and is not empty, not when the scanner stays quiet.
-    def sbomFile = new File('sbom.json')
-    boolean sbomProduced = sbomFile.exists() && sbomFile.length() > 2
-
     def gate = GateResult.evaluate([
         deploy : [result: build?.status ?: 'no result reported'],
-        quality: toGateQuality(quality),
-        scan   : toGateScan(scan, sbomProduced),
+        quality: gateQuality,
+        scan   : gateScan,
     ])
     log(gate.passed ? 'INFO' : 'ERROR', "GateResult.evaluate passed=${gate.passed} failures=${gate.failures.size()} warnings=${gate.warnings.size()}")
 
@@ -159,7 +199,13 @@ int run(Map opts) {
     if (manifest && !opts.noEnvironment) {
         def envName = opts.to ?: (manifest.environments?.find()?.env ?: 'sit')
         plan = DeploymentPlan.build(manifest, envName)
-        log('INFO', "DeploymentPlan.build env=${envName} services=${plan.size()} waves=${DeploymentPlan.waves(plan).size()}")
+        def waves = DeploymentPlan.waves(plan)
+        log('INFO', "DeploymentPlan.build env=${envName} services=${plan.size()} waves=${waves.size()}")
+        // A wave is a barrier: the names in it are the ones that start together,
+        // and the tier is the number the plan was sorted by.
+        waves.eachWithIndex { wave, n ->
+            log('INFO', "wave number=${n + 1} tier=${wave[0].tier} size=${wave.size()} services=${kv(wave.collect { it.name }.join(','))}")
+        }
     }
 
     def verdict = [
@@ -221,6 +267,8 @@ int selftest() {
 
     def noCoverage = toGateQuality([projectStatus: [status: 'OK'], conditions: []])
     check('missing coverage stays missing', noCoverage.coverage == null)
+    check('an unmeasured value prints as absent', kv(null) == 'absent' && kv(noCoverage.coverage) == 'absent' && kv(81.4d) == '81.4')
+    check('a space inside a value is escaped', kv('no result reported') == 'no\\ result\\ reported')
     def gateNoCoverage = GateResult.evaluate([deploy: [result: 'success'], quality: noCoverage, scan: [findings: [], sbom: true]])
     check('refused because it is not measured', !gateNoCoverage.passed && gateNoCoverage.failures.any { it.contains('not measured') })
     // What must never appear is an invented number: "0.0% below floor" sounds like

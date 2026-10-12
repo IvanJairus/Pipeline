@@ -124,6 +124,33 @@ def collect_artifacts(paths: list[str]) -> list[dict]:
 
 # ── SBOM checks ──────────────────────────────────────────────────────────────
 
+def read_sbom(path: str) -> dict | None:
+    """The document itself, or None when it cannot be read.
+
+    The log line is built from what this returns, so a count written to the
+    console is a count that was taken out of the file.
+    """
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def sbom_facts(doc: dict) -> dict:
+    """What the SBOM says about itself: its shape and how much it inventories."""
+    components = doc.get("components") or []
+    return {
+        "format": doc.get("bomFormat") or "none",
+        "specVersion": doc.get("specVersion") or "none",
+        "components": len(components),
+        "versioned": sum(1 for c in components if isinstance(c, dict) and c.get("name") and c.get("version")),
+    }
+
+
 def verify_sbom(path: str) -> list[str]:
     """Return the list of problems; empty means this SBOM is usable."""
     problems: list[str] = []
@@ -219,6 +246,15 @@ def selftest() -> int:
     ok(any("port" in p for p in check_config_write({"required": {"port": "int"}}, [{"service": "a", "port": 22, "owners": ["x"]}])), "low port refused")
     ok(check_config_write({"required": {"port": "int"}}, [{"service": "a", "port": 8080, "owners": ["x"]}]) == [], "valid config passes")
 
+    # The numbers that go into the log are read out of the document, one by one.
+    facts = sbom_facts({"bomFormat": "CycloneDX", "specVersion": "1.6",
+                        "components": [{"name": "a", "version": "1"}, {"name": "b"}, {"version": "2"}]})
+    ok(facts["components"] == 3, "every component is counted")
+    ok(facts["versioned"] == 1, "only a component with a name and a version counts as inventoried")
+    ok(facts["specVersion"] == "1.6" and facts["format"] == "CycloneDX", "the spec version is the one that was written")
+    ok(read_sbom("file-that-does-not-exist.json") is None, "a file that is not there is not read as an empty document")
+    ok(read_sbom_write({"bomFormat": "CycloneDX", "specVersion": "1.5", "components": [{"name": "a", "version": "1"}]}) is not None, "a written sbom is readable")
+
     line = capture_log(lambda: log("INFO", "stamped version=R1.4.2"))
     ok(re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2} INFO \S+ stamped version=R1\.4\.2$", line) is not None, "log line shape")
 
@@ -226,6 +262,16 @@ def selftest() -> int:
         print(f"release_stamp selftest FAIL {f}", file=sys.stderr)
     print("release_stamp selftest: ok" if not fails else f"release_stamp selftest: {len(fails)} failures", file=sys.stderr)
     return 0 if not fails else 1
+
+
+def read_sbom_write(doc: dict) -> dict | None:
+    path = ".selftest-sbom-read.json"
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+    try:
+        return read_sbom(path)
+    finally:
+        os.unlink(path)
 
 
 def verify_sbom_write(doc: dict) -> list[str]:
@@ -278,6 +324,15 @@ def main(argv: list[str]) -> int:
         problems = verify_sbom(args.verify_sbom)
         for p in problems:
             log("ERROR", f"failed reason=sbom_invalid {p}")
+        doc = read_sbom(args.verify_sbom)
+        if doc is None:
+            # Nothing could be counted, so nothing is counted: an absent file is
+            # not a document with zero components in it.
+            log("WARN", f"sbom file={args.verify_sbom} readable=false")
+        else:
+            facts = sbom_facts(doc)
+            log("INFO", f"sbom read file={args.verify_sbom} format={facts['format']} "
+                        f"specVersion={facts['specVersion']} components={facts['components']} versioned={facts['versioned']}")
         log("INFO" if not problems else "WARN", f"verify-sbom file={args.verify_sbom} problems={len(problems)}")
         return 1 if problems else 0
 
@@ -295,12 +350,23 @@ def main(argv: list[str]) -> int:
         return 1 if problems else 0
 
     commit = describe_commit()
-    artifacts = collect_artifacts(args.artifact or ["target"])
+    # Where the version number came from: a tag that exists, or the bump that
+    # follows the last one. `none` is written as none, because a missing tag is
+    # the fact that makes the first release of a repo read as R0.1.0.
+    log("INFO", f"commit branch={commit['branch'] or 'none'} short={commit['short'] or 'none'} "
+                f"tag={commit['tag'] or 'none'} lastTag={commit['lastTag'] or 'none'}")
+    requested = args.artifact or ["target"]
+    artifacts = collect_artifacts(requested)
+    present = [a["path"] for a in artifacts if a["exists"]]
+    missing = [a["path"] for a in artifacts if not a["exists"]]
+    log("INFO", f"artifacts requested={len(requested)} present={len(present)} missing={len(missing)} "
+                f"paths={','.join(present) or 'none'}")
     info = render_build_info(args.tag_prefix, commit, artifacts)
     with open(args.output, "w", encoding="utf-8") as fh:
         json.dump(info, fh, indent=2, sort_keys=True)
         fh.write("\n")
     log("INFO", f"stamped version={info['version']} commit={info['commit'] or 'none'} artifacts={len(info['artifacts'])} status={info['status']}")
+    log("INFO", f"written file={args.output} bytes={os.path.getsize(args.output)} prefix={info['prefix']} pipeline={info['pipeline']}")
     if args.audit_line:
         # The same one line people will search for in the log aggregator six
         # months from now, written while the release happens.
