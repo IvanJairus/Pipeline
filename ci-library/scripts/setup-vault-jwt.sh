@@ -11,7 +11,7 @@
 
 set -e
 
-# --- 1. Variables and Validation ---
+# 1. Variables and Validation
 # Hardcode your configuration here:
 GITLAB_URL="https://git.example.internal"
 
@@ -41,17 +41,17 @@ if ! vault status > /dev/null 2>&1; then
     exit 1
 fi
 
-# --- 2. Enable the JWT Auth Method ---
+# 2. Enable the JWT Auth Method
 echo "[1/4] Enabling the JWT authentication method (skipped when it is already enabled)..."
 vault auth enable jwt 2>/dev/null || echo "The JWT method is already enabled."
 
-# --- 3. Connect Vault to GitLab OIDC Discovery ---
+# 3. Connect Vault to GitLab OIDC Discovery
 echo "[2/4] Connecting Vault to the GitLab JWKS (OIDC)..."
 vault write auth/jwt/config \
     oidc_discovery_url="${GITLAB_URL}" \
     bound_issuer="${GITLAB_URL}"
 
-# --- 4. Create the Universal Policy ---
+# 4. Create the Universal Policy
 echo "[3/4] Writing the universal policy for GitLab pipelines..."
 cat <<EOF > /tmp/gitlab-pipeline-policy.hcl
 # Allow read access to every secret under the 'pipeline/' path
@@ -63,7 +63,7 @@ EOF
 vault policy write gitlab-pipeline-policy /tmp/gitlab-pipeline-policy.hcl
 rm -f /tmp/gitlab-pipeline-policy.hcl
 
-# --- 5. Create the Vault Role ---
+# 5. Create the Vault Role
 echo "[4/4] Writing the Vault role (gitlab-role) for GitLab JWT..."
 
 # Decide bound_claims from whether NAMESPACE_ID is set or not

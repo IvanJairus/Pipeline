@@ -37,7 +37,7 @@ const gdec = (n) => (Number.isInteger(Number(n)) ? Number(n).toFixed(1) : String
 
 const str = (v) => (v === null || v === undefined ? 'null' : String(v));
 
-/* ---------- SHA-256, so the watermark computes the same in a browser ------- */
+/* SHA-256, so the watermark computes the same in a browser */
 
 const K = [
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -94,7 +94,7 @@ function sha256Hex(message) {
   return h.map((x) => x.toString(16).padStart(8, '0')).join('');
 }
 
-/* ---------- ReleaseRules ---------- */
+/* ReleaseRules */
 
 export const ARTIFACTS = ['jar', 'image', 'apk', 'ipa', 'web'];
 
@@ -179,7 +179,7 @@ export function approvalChainProblems(approvals) {
   return problems;
 }
 
-/* ---------- GateResult ---------- */
+/* GateResult */
 
 export const THRESHOLDS = {
   criticalVulnerabilities: 0,
@@ -253,7 +253,7 @@ export function evaluateGate(input) {
   return verdict(failures, warnings);
 }
 
-/* ---------- DeploymentPlan ---------- */
+/* DeploymentPlan */
 
 export const TIER = { database: 0, backend: 1, gateway: 2, web: 3, mobile: 4 };
 

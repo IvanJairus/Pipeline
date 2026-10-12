@@ -45,9 +45,9 @@ pipeline {
     }
 }
 
-// =============================================================================
-// === HELPER FUNCTIONS ========================================================
-// =============================================================================
+// The helpers are defined after the pipeline block, which is how a Jenkins job
+// script reads: the stages list the calls, the definitions follow. What crosses
+// jobs lives in shared-library/vars instead; these three belong to this script.
 
 
 def triggerJobs() {
