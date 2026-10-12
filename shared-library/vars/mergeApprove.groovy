@@ -8,6 +8,7 @@ import com.reference.release.ReleaseRules
 def call(Map args) {
     def approvals = args.approvals ?: [:]
     def problems = ReleaseRules.approvalChainProblems(approvals)
+    echo "approval chain: layers=5 problems=${problems.size()} merger=${args.merger}"
 
     // Segregation of duties: whoever signed the last layer may not merge.
     if (approvals.engineering && approvals.engineering == args.merger) {

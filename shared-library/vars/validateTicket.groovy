@@ -13,6 +13,8 @@ def call(Map args) {
         problems.addAll(ReleaseRules.validatePromotion(args.from as String, args.to as String))
     }
 
+    echo "validateTicket: branch=${args.branch} promotion=${args.promotion ? "${args.from}->${args.to}" : 'none'} problems=${problems.size()}"
+
     if (problems) {
         def body = 'Release standard not met:\n' + problems.collect { "* ${it}" }.join('\n')
         commentOnTicket(args.issue, body)

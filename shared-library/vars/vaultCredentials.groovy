@@ -20,11 +20,14 @@ def call(Map args, Closure body) {
             script: "printf %s ${jwt} | vault write -field=token -no-table ${mount}/issue/${role} ttl=${args.ttl ?: '10m'} -",
             returnStdout: true
         ).trim()
+        // Role, mount and ttl only. The token itself is never echoed.
+        echo "lease issued role=${role} mount=${mount} ttl=${args.ttl ?: '10m'}"
         try {
             // The lease travels as an environment variable, never as a command
             // argument: arguments end up in the step log and in `ps` output.
             withEnv(["VAULT_TOKEN=${lease}"]) { body(lease) }
         } finally {
+            echo "lease revoking role=${role}"
             sh(script: 'vault token revoke -self', label: 'revoke vault lease')
         }
     }
