@@ -46,7 +46,7 @@ build:maven-package:
     - job: build:release-stamp
       artifacts: true
   script:
-    - bash ci-library/scripts/build-maven.sh package -DskipTests
+    - bash ci-library/scripts/build-maven.sh package "$CI_PROJECT_DIR"
   artifacts:
     paths:
       - target/*.jar
@@ -58,7 +58,7 @@ test:unit:
     - job: build:maven-package
       artifacts: true
   script:
-    - bash ci-library/scripts/build-maven.sh test
+    - bash ci-library/scripts/build-maven.sh test "$CI_PROJECT_DIR"
   artifacts:
     when: always
     reports:
@@ -74,7 +74,7 @@ test:compat:
     - job: build:maven-package
       artifacts: true
   script:
-    - bash ci-library/scripts/build-maven.sh verify -Pcompat
+    - bash ci-library/scripts/build-maven.sh contracts "$CI_PROJECT_DIR"
   allow_failure: true
 
 quality:sonarqube-checks:
@@ -85,7 +85,7 @@ quality:sonarqube-checks:
   image: sonarsource/sonar-scanner-cli:10
   script:
     - sonar-scanner -Dsonar.host.url="$SONAR_HOST"
-    - bash ci-library/scripts/run-scan.sh quality-gate
+    - SCAN_PROJECT="$CI_PROJECT_NAME" SCAN_TYPE=maven SCAN_SERVICES="$CI_PROJECT_NAME:${RELEASE_TAG:-main}" bash ci-library/scripts/run-scan.sh > sonar-gate.json
   artifacts:
     paths:
       - sonar-gate.json

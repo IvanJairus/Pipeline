@@ -46,7 +46,7 @@ build:maven-package:
     - job: build:release-stamp
       artifacts: true
   script:
-    - bash ci-library/scripts/build-maven.sh package
+    - bash ci-library/scripts/build-maven.sh package "$CI_PROJECT_DIR"
   artifacts:
     paths:
       - target/*.jar
@@ -71,7 +71,7 @@ test:unit:
     - job: build:maven-package
       artifacts: true
   script:
-    - bash ci-library/scripts/build-maven.sh test
+    - bash ci-library/scripts/build-maven.sh test "$CI_PROJECT_DIR"
   artifacts:
     when: always
     reports:
@@ -97,7 +97,7 @@ scan:container-trivy:
       artifacts: true
   image: aquasec/trivy:0.53.0
   script:
-    - bash ci-library/scripts/run-scan.sh image
+    - trivy image --severity CRITICAL,HIGH --format json --output trivy-report.json "$REGISTRY/$CI_PROJECT_NAME@$(cat image-digest.txt)"
   artifacts:
     when: always
     paths:

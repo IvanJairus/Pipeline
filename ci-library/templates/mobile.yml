@@ -75,7 +75,7 @@ scan:secrets-in-bundle:
   image: zricethezav/gitleaks:v8.18.4
   script:
     - gitleaks detect --source . --redact --report-format json --report-path leaks.json
-    - bash ci-library/scripts/run-scan.sh bundle
+    - trivy fs --scanners vuln,misconfig --format json --output bundle-scan.json .
   artifacts:
     when: always
     paths:
@@ -109,12 +109,10 @@ sign:apk:
       artifacts: true
   tags: [android]
   script:
-    # The job takes the key as a short-lived lease from Vault, uses it, and
-    # revokes it in after_script. The repo never commits signing.properties.
-    - bash ci-library/scripts/setup-vault-jwt.sh issue --for keystore
+    # KEYSTORE_PATH points at a file the runner injected from a Vault lease that
+    # expires on its own; the password never appears in a command line. The repo
+    # never commits signing.properties, and nothing here echoes the key.
     - bash ci-library/scripts/publish-artifact.sh sign
-  after_script:
-    - bash ci-library/scripts/setup-vault-jwt.sh revoke || true
   artifacts:
     paths:
       - app/build/outputs/apk/release/*-signed.apk

@@ -1,0 +1,93 @@
+# The manifest deploy.sh renders before it applies anything.
+#
+# Four placeholders, and nothing else may vary: __ENV__, __NAMESPACE__, __IMAGE__
+# and __DIGEST__. That list is the contract between this file and render() in
+# ci-library/scripts/deploy.sh, and the selftest fails if a rendered output still
+# carries a placeholder, because a manifest that applies with an unresolved token
+# in it does not fail loudly: it creates a deployment pointing at an image tag
+# that moves.
+#
+# The digest is written into the container reference, not into an annotation
+# alone. An annotation records what was intended; the image reference is what the
+# cluster actually pulls.
+#
+# Names, namespaces and the registry here are synthetic, in the same band the
+# rest of this repository uses.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: __IMAGE_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    app: __IMAGE_NAME__
+    env: __ENV__
+    managed-by: pipeline-gateway
+  annotations:
+    gateway.example.internal/environment: __ENV__
+    gateway.example.internal/digest: __DIGEST__
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: __IMAGE_NAME__
+  template:
+    metadata:
+      labels:
+        app: __IMAGE_NAME__
+        env: __ENV__
+      annotations:
+        gateway.example.internal/digest: __DIGEST__
+    spec:
+      # The service account is the workload identity Vault authenticates against.
+      # Nothing in this file carries a secret.
+      serviceAccountName: __IMAGE_NAME__
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: __IMAGE_NAME__
+          # Pinned by digest. A tag in this line would make the rollout
+          # unrepeatable, and a rollback would restore whatever the tag had
+          # drifted to, not what was tested.
+          image: __IMAGE__@__DIGEST__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

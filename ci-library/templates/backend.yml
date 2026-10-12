@@ -78,7 +78,7 @@ build:maven-package:
     - job: build:release-stamp
       artifacts: true
   script:
-    - bash ci-library/scripts/build-maven.sh package
+    - bash ci-library/scripts/build-maven.sh package "$CI_PROJECT_DIR"
   artifacts:
     when: always
     paths:
@@ -116,7 +116,7 @@ test:unit:
     - job: build:maven-package
       artifacts: true
   script:
-    - bash ci-library/scripts/build-maven.sh test
+    - bash ci-library/scripts/build-maven.sh test "$CI_PROJECT_DIR"
   artifacts:
     reports:
       junit: target/surefire-reports/TEST-*.xml
@@ -127,7 +127,7 @@ test:contract:
     - job: build:maven-package
       artifacts: true
   script:
-    - bash ci-library/scripts/build-maven.sh verify -Pcontracts
+    - bash ci-library/scripts/build-maven.sh contracts "$CI_PROJECT_DIR"
   artifacts:
     when: always
     reports:
@@ -170,7 +170,7 @@ scan:container-trivy:
   variables:
     TRIVY_SERVER: "http://trivy-server.platform.svc.cluster.local:4954"
   script:
-    - bash ci-library/scripts/run-scan.sh image
+    - trivy image --severity CRITICAL,HIGH --format json --output trivy-report.json "$REGISTRY/$CI_PROJECT_NAME@$(cat image-digest.txt)"
   artifacts:
     when: always
     paths:
@@ -209,7 +209,7 @@ quality:sonarqube-checks:
   script:
     - sonar-scanner -Dsonar.host.url="$SONAR_HOST" -Dsonar.login="$SONAR_TOKEN"
     - sleep 20                       # wait for the quality gate webhook to arrive
-    - bash ci-library/scripts/run-scan.sh quality-gate
+    - SCAN_PROJECT="$CI_PROJECT_NAME" SCAN_TYPE=maven SCAN_SERVICES="$CI_PROJECT_NAME:${RELEASE_TAG:-main}" bash ci-library/scripts/run-scan.sh > sonar-gate.json
   artifacts:
     paths:
       - sonar-gate.json
@@ -269,7 +269,6 @@ deploy:sit:
     - job: build:docker-image
       artifacts: true
   script:
-    - bash ci-library/scripts/setup-vault-jwt.sh issue
     - bash ci-library/scripts/deploy.sh apply --env sit --digest "$(cat image-digest.txt)"
     - bash ci-library/scripts/deploy.sh wait --env sit --timeout 300
   environment:

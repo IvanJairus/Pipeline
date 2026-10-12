@@ -34,7 +34,7 @@ source "$SCRIPT_DIR/lib/log.sh"
 
 DRY_RUN="${DRY_RUN:-0}"
 VERDICT_FILE="${VERDICT_FILE:-gate-verdict.json}"
-TEMPLATE="${TEMPLATE:-jenkins/templates/deployment.yaml}"
+if [ -z "${TEMPLATE:-}" ]; then TEMPLATE='ci-library/templates/deployment.yaml'; fi
 # Split from ${VAR:-default} because bash runs brace expansion on the default
 # value inside a parameter expansion: "ci-{env}-x" comes out as "ci-{envx}".
 if [ -z "${NAMESPACE_TEMPLATE:-}" ]; then NAMESPACE_TEMPLATE='ci-{env}-ledger-service'; fi
@@ -119,9 +119,15 @@ render() {
   local env="$1" digest="$2" out="$3"
   [ -f "$TEMPLATE" ] || die no_template "file=$TEMPLATE"
   sed -e "s|__ENV__|$env|g" -e "s|__NAMESPACE__|$(namespace_for "$env")|g" -e "s|__DIGEST__|$digest|g" \
+      -e "s|__IMAGE_NAME__|$CI_PROJECT_NAME|g" \
       -e "s|__IMAGE__|${REGISTRY:-registry.example.internal/platform}/$CI_PROJECT_NAME|g" \
       "$TEMPLATE" > "$out"
-  log INFO "rendered template=$TEMPLATE out=$out env=$env namespace=$(namespace_for "$env")"
+  # Checked, not assumed. A placeholder left in a manifest does not fail: the
+  # cluster happily runs a deployment whose image line still says __IMAGE__.
+  local left
+  left="$(grep -o '__[A-Z_]*__' "$out" | sort -u | tr '\n' ',' || true)"
+  [ -z "$left" ] || die unresolved_placeholder "file=$out tokens=$left"
+  log INFO "rendered template=$TEMPLATE out=$out env=$env namespace=$(namespace_for "$env") image=${REGISTRY:-registry.example.internal/platform}/$CI_PROJECT_NAME@${digest:7:12}"
 }
 
 cmd_apply() {
@@ -221,8 +227,10 @@ selftest() {
   try()       { "$@" >out.txt 2>err.txt || true; }
 
   tmp="$(mktemp -d)"; cd "$tmp"
-  mkdir -p jenkins/templates shared-library/src
-  printf '%s\n' 'metadata: { name: __IMAGE__ }' 'spec:' '  template: { metadata: { annotations: { digest: "__DIGEST__" } } }' > jenkins/templates/deployment.yaml
+  # The real template, not a stand-in: the point of these cases is that the
+  # placeholders in the file the platform actually applies are all resolved.
+  mkdir -p ci-library/templates shared-library/src
+  cp "$SCRIPT_DIR/../templates/deployment.yaml" ci-library/templates/deployment.yaml
   export CI_PROJECT_NAME=core-api
 
   # An environment outside the list cannot be named by any means.
@@ -247,7 +255,17 @@ selftest() {
   try env DRY_RUN=1 bash "$SCRIPT_DIR/deploy.sh" apply --env sit --digest "sha256:$(printf 'a%.0s' {1..64})"
   says err.txt "applied env=sit" "a passing verdict does not deploy"
   says err.txt "namespace=ci-sit-ledger-service" "namespace not filled in"
-  never_says rendered/sit.yaml "__IMAGE__" "placeholder still raw in the rendered file"
+  # Positive assertions on the rendered file: "no placeholder left" is only
+  # meaningful once something was required to be there.
+  says rendered/sit.yaml "namespace: ci-sit-ledger-service" "the rendered namespace is not the one asked for"
+  says rendered/sit.yaml "image: registry.example.internal/platform/core-api@sha256:aaaaaaaaaaaaaaaa" "the rendered image line does not carry the digest"
+  says rendered/sit.yaml "env: sit" "the rendered environment label is missing"
+
+  # A token render() does not know must stop the deploy rather than reach the cluster.
+  printf '%s\n' 'metadata: { name: __MYSTERY__ }' > ci-library/templates/deployment.yaml
+  try env DRY_RUN=1 bash "$SCRIPT_DIR/deploy.sh" apply --env sit --digest "sha256:$(printf 'a%.0s' {1..64})"
+  says err.txt "reason=unresolved_placeholder" "an unresolved placeholder was allowed through"
+  cp "$SCRIPT_DIR/../templates/deployment.yaml" ci-library/templates/deployment.yaml
 
   # The production change window, tested with a turned clock rather than with hope.
   try env DRY_RUN=1 NOW_OVERRIDE=6_22 RULES_CHECK_CMD="true" CHANGE_WINDOW=1 \

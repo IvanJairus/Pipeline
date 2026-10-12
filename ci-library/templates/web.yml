@@ -109,7 +109,7 @@ scan:container-trivy:
       artifacts: true
   image: aquasec/trivy:0.53.0
   script:
-    - bash ci-library/scripts/run-scan.sh image
+    - trivy image --severity CRITICAL,HIGH --format json --output trivy-report.json "$REGISTRY/$CI_PROJECT_NAME@$(cat image-digest.txt)"
   artifacts:
     when: always
     paths:
@@ -133,7 +133,7 @@ quality:sonarqube-checks:
   image: sonarsource/sonar-scanner-cli:10
   script:
     - sonar-scanner -Dsonar.host.url="$SONAR_HOST" -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-    - bash ci-library/scripts/run-scan.sh quality-gate
+    - SCAN_PROJECT="$CI_PROJECT_NAME" SCAN_TYPE=maven SCAN_SERVICES="$CI_PROJECT_NAME:${RELEASE_TAG:-main}" bash ci-library/scripts/run-scan.sh > sonar-gate.json
   artifacts:
     paths:
       - sonar-gate.json
