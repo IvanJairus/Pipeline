@@ -1,10 +1,10 @@
-# berkas mentah hasil unduhan. JANGAN pernah ikut commit
+# raw download output. NEVER commit these
 _raw/
 *.pyc
 __pycache__/
 .DS_Store
 
-# Dihasilkan oleh replay.sh dan oleh job pipeline di runner; bukan isi repo.
+# Produced by replay.sh and by pipeline jobs on the runner; not repo content.
 build-info.json
 gate-verdict.json
 gate-summary.txt

@@ -1,16 +1,16 @@
 #!/bin/bash
-# Menghasilkan ci-library/examples/transcript.txt.
+# Generates ci-library/examples/transcript.txt.
 #
-# Transkrip itu bukan contoh yang diketik tangan: ia stdout+stderr dari rantai
-# nyata release-stamp -> gate -> ticket-sync -> observability -> deploy, dijalankan
-# dengan DRY_RUN=1 dan input di ci-library/examples/. Halaman /pipelines/ di
-# portofolio saya memakai bentuk baris dari transkrip ini, jadi kalau sebuah
-# script mengubah format lognya, transkrip dan halaman itu ikut berubah.
+# The transcript is not a hand-typed example: it is the stdout+stderr of the real
+# release-stamp -> gate -> ticket-sync -> observability -> deploy chain, run
+# with DRY_RUN=1 and the inputs in ci-library/examples/. The /pipelines/ page in
+# my portfolio uses the line shape from this transcript, so if a script
+# changes its log format, the transcript and that page change with it.
 #
-#   bash ci-library/examples/replay.sh            # tulis transkrip
-#   bash ci-library/examples/replay.sh --check    # verifikasi bentuknya, tanpa menulis
+#   bash ci-library/examples/replay.sh            # write the transcript
+#   bash ci-library/examples/replay.sh --check    # verify the shape, without writing
 #
-# Butuh: python3, groovy, dan repo ini. Tidak butuh jaringan, tidak butuh runner.
+# Needs: python3, groovy, and this repo. Needs no network, needs no runner.
 
 set -euo pipefail
 
@@ -21,9 +21,9 @@ LINE_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}[+-][0-
 
 cd "$ROOT"
 WORK="$(mktemp -d)"
-# Berkas yang dihasilkan rantai ini adalah artefak job, bukan isi repo: semua
-# namanya ada di .gitignore, dan dibersihkan di sini supaya sekali jalan tidak
-# meninggalkan jejak.
+# The files this chain produces are job artifacts, not repo content: all their
+# names are in .gitignore, and they are cleaned up here so that one run does
+# not leave a trace.
 GEN="build-info.json gate-verdict.json gate-summary.txt image-digest.txt metrics.prom sbom.json target rendered"
 cleanup() { rm -rf "$WORK"; cd "$ROOT"; for f in $GEN; do rm -rf "$f"; done; }
 trap cleanup EXIT
@@ -45,8 +45,8 @@ JSON
 }
 
 run_chain() {
-  # Semua perintah di bawah adalah perintah yang sama dengan yang ada di
-  # template pipeline; yang berbeda hanya DRY_RUN dan jalur berkasnya.
+  # Every command below is the same one the pipeline template runs.
+  # Only DRY_RUN and the file paths differ.
   export DRY_RUN=1 \
          CI_PROJECT_NAME=core-api CI_PIPELINE_ID=1421 \
          CI_COMMIT_SHORT_SHA=a1b2c3d CI_COMMIT_REF_NAME=fix/471-timeout \
@@ -74,9 +74,9 @@ run_chain() {
     cp gate-verdict.json "$WORK/gate-$scan.json"
   done
 
-  # Komentar tiket untuk verdict yang MENOLAK - itu yang paling perlu dibaca orang.
-  # stdout-nya adalah isi komentar, bukan log: ia ke $WORK, supaya transkrip tetap
-  # satu bentuk baris.
+  # The ticket comment for a REJECTING verdict: that is the one people most need to read.
+  # Its stdout is the comment body, not a log: it goes to $WORK, so the transcript
+  # stays in one line shape.
   CI_JOB_NAME=gate:ticket-sync bash ci-library/scripts/ticket-sync.sh post --issue 471 > "$WORK/ticket-note.txt" 2>> "$WORK/trace" || true
   emit "# ticket note written lines=$(wc -l < "$WORK/ticket-note.txt" | tr -d ' ')"
 

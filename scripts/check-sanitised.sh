@@ -1,53 +1,53 @@
 #!/usr/bin/env bash
-# Gerbang: pastikan tidak ada identifier internal yang ikut terkirim.
-# Pola yang sama dipakai sanitize.py; kalau ini gagal, jangan push.
+# Gate: make sure no internal identifier gets pushed out with the code.
+# sanitize.py uses the same patterns; if this gate fails, do not push.
 #
-# 2026-10-10: gerbang ini pernah lolos sambil meninggalkan 48 pemetaan
-# "nama service -> project ID GitLab" di ci-library/gateway.yml pada repo
-# publik. Deny-list lama hanya mengenali nama organisasi, bukan pola
-# pemetaan. Jadi sekarang ada --selftest: contoh bocoran sintetis harus
-# tertangkap, satu saja yang lolos berarti gerbangnya mati.
+# 2026-10-10: this gate passed while leaving 48 mappings of
+# "service name -> GitLab project ID" in ci-library/gateway.yml on the
+# public repo. The old deny-list only recognised organisation names, not the
+# mapping pattern. So there is now a --selftest: the synthetic leak sample
+# must be caught, and one line getting through means the gate is dead.
 set -uo pipefail
-# cd yang gagal tanpa || exit akan membuat semua pola dicari di direktori yang
-# salah, dan gerbang yang memeriksa salah direktori selalu lulus.
+# A cd that fails without || exit makes every pattern search run in the wrong
+# directory, and a gate that checks the wrong directory always passes.
 cd "$(dirname "$0")/.." || { echo "check-sanitised: cannot enter the repo root" >&2; exit 2; }
 fail=0
 
-# ERE murni. (?i) bukan perluasan POSIX: perilakunya beda antara BSD grep di
-# laptop dan GNU grep di runner, jadi kapital ditulis eksplisit.
+# Pure ERE. (?i) is not a POSIX extension: its behaviour differs between BSD
+# grep on the laptop and GNU grep on the runner, so capitalisation is written out.
 P_HOSTNAME='\.(co\.id|intra|corp)\b'
 P_IP='(^|[^0-9.])([0-9]{1,3}\.){3}[0-9]{1,3}'
-# Yang boleh lewat: rentang sintetis 10.20.x dan loopback. Loopback bukan
-# identifier internal - ia alamat mesin yang sedang menjalankan test, dan
-# menyembunyikannya hanya akan memaksa orang menulis "localhost" di kode yang
-# memang memanggil 127.0.0.1.
+# What may pass: the synthetic 10.20.x range and loopback. Loopback is not an
+# internal identifier, it is the address of the machine running the test, and
+# hiding it would only force people to write "localhost" in code that
+# really does call 127.0.0.1.
 P_IP_SYNTH='(^|\.)(10\.20|127\.0)(\.[0-9]+){2}$'
 P_KRED="(token|password|secret|api[_-]?key)[\"' ]*[:=][\"' ]*[A-Za-z0-9._+/=-]{12,}[\"']"
 P_BEARER='([Bb][Ee][Aa][Rr][Ee][Rr]|[Bb][Aa][Ss][Ii][Cc])[[:space:]]+[A-Za-z0-9._+/=-]{16,}'
-# Tidak ada daftar nama organisasi atau nama service di file ini. Sebuah deny-list
-# yang menyebut kosakata internal menerbitkan persis kosakata yang mau dijaganya;
-# komentar penjelas pun ikut jadi bagian bocoran. Yang boleh tinggal pemeriksaan
-# struktural: bentuk yang tidak sah selalu salah, apa pun namanya. Kosakata
-# organisasi hidup di berkas privat yang dibacakan CI, bukan di sini.
+# No organisation name or service name list lives in this file. A deny-list that
+# names internal vocabulary publishes exactly the vocabulary it means to guard, and
+# an explaining comment becomes part of the leak. What may stay is structural
+# checking: an invalid shape is always wrong, whatever it is called. Organisation
+# vocabulary lives in the private file that CI reads, not here.
 P_PAT='glpat-[A-Za-z0-9_-]{8,}|github_pat_[A-Za-z0-9_]{10,}'
-# Ini yang dulu tidak ada: nama service yang diberi ID GitLab, dan jalur project internal.
-# Sama seperti aturan IP, ada pita ID sintetis yang diizinkan: 1000-1999. Tanpa itu
-# contoh yang memang sengaja sintetis akan ikut ditandai, dan gerbang yang berteriak
-# terus akan dimatikan orang.
+# This is what was missing before: a service name carrying a GitLab ID, and an internal project path.
+# Same as the IP rule, a synthetic ID band is allowed: 1000-1999. Without it the
+# samples that are intentionally synthetic get flagged too, and a gate that keeps
+# shouting is a gate people turn off.
 P_ID_MAP='[a-z][a-z0-9_-]*\([0-9]{4,6}\)'
 P_ID_SYNTH='\(1[0-9]{3}\)$'
-# Allow-list, bukan deny-list: satu-satunya nilai `project:` yang sah di repo ini.
+# An allow-list, not a deny-list: the only valid `project:` value in this repo.
 P_PROJ_ALLOW='^platform/pipeline-gateway$'
-# ID juga muncul telanjang di baris rules, bukan cuma di kolom komentar. Tanpa ini,
-# hasil pembersihan yang hanya mengedit komentar tetap lolos.
+# The ID also appears bare on rules lines, not only in the comment column. Without this,
+# a sanitised result that only edited the comments still passes.
 P_PROJID='CI_PROJECT_ID == "[0-9]{4,6}"'
 P_PROJID_SYNTH='"1[0-9]{3}"'
 
 scan() {
   local label="$1" regex="$2" hits
   local -a extra=()
-  # Pola nama dulu case-sensitive, jadi "BNI" huruf besar lolos. Untuk pemeriksaan
-  # kosakata, kapital tidak boleh jadi alasan.
+  # The name patterns used to be case-sensitive, so an uppercase "BNI" got through. For
+  # vocabulary checks, capitalisation must not be an excuse.
   [ "${3:-}" = "-i" ] && extra+=("-i")
   hits=$(grep -rnEI "${extra[@]}" --exclude-dir=.git --exclude-dir=_raw --exclude=check-sanitised.sh "$regex" . || true)
   if [ -n "$hits" ]; then
@@ -60,9 +60,9 @@ scan() {
 }
 
 ip_hits() {
-  # Garis output mentah masih membawa prefik non-angka dari P_IP ("svc 10.20.4.7"),
-  # jadi prefiknya dibuang dulu. Tanpa langkah ini, alamat yang seharusnya dilepas
-  # band-filter lolos sebagai teks yang tidak mirip alamat sama sekali.
+  # A raw output line still carries the non-numeric prefix from P_IP ("svc 10.20.4.7"),
+  # so the prefix is stripped first. Without that step an address the band filter
+  # should release gets through as text that does not look like an address at all.
   grep -rhoEI --exclude-dir=.git --exclude-dir=_raw --exclude=check-sanitised.sh "$P_IP" . 2>/dev/null \
     | sed -E 's/^[^0-9]*//' | tr -d ' :' | grep -vE "$P_IP_SYNTH" | sort -u
 }
@@ -82,7 +82,7 @@ selftest() {
   dir=$(mktemp -d) || return 1
   trap 'rm -rf "$dir"' RETURN
   cat > "$dir/sample" <<'BAD'
-# semua nilai di bawah fiktif; yang membuatnya buruk adalah bentuknya, bukan namanya
+# all values below are fictional; what makes them bad is their shape, not their name
 platform Backend services
   - svc-one(20001), svc-two(20002), svc-three(20003)
   - svc-four(20004), svc-five(20005), svc-six(20006)
@@ -107,7 +107,7 @@ BAD
       rc=1
     fi
   done
-  # allow-list project: diuji terpisah, ia pipeline bukan satu regex.
+  # the project: allow-list is tested separately; it is a pipeline of steps, not one regex.
   strip() { grep -oE "project: *'[^']+'" | sed -E "s/project: *'//; s/'$//"; }
   badv=$(printf "  - project: 'team/private-gateway'\n" | strip | grep -vE "$P_PROJ_ALLOW" || true)
   goodv=$(printf "  - project: 'platform/pipeline-gateway'\n" | strip | grep -vE "$P_PROJ_ALLOW" || true)
@@ -118,8 +118,8 @@ BAD
     rc=1
   fi
 
-  # dan sebaliknya: contoh sintetis tidak boleh memicu alarm. Kalau alarm selalu
-  # menyala, gerbang ini cuma noise yang akan dimatikan orang.
+  # and the other way round: a synthetic sample must not raise an alarm. If the alarm
+  # is always on, this gate is only noise that people will turn off.
   printf '  - api(1001), web(1002)\n  - if: $CI_PROJECT_ID == "1001"\n  - project: %s\n' "'platform/pipeline-gateway'" > "$dir/clean"
   over_map=$(grep -oE "$P_ID_MAP" "$dir/clean" | grep -vE "$P_ID_SYNTH" || true)
   over_pjid=$(grep -oE "$P_PROJID" "$dir/clean" | grep -vE "$P_PROJID_SYNTH" || true)
@@ -131,8 +131,8 @@ BAD
     echo "  ok   synthetic samples (api(1001), rules 1001, an allowed project) were not flagged"
   fi
 
-  # pita sintetis: polanya harus tetap mengenali bentuknya, baru band-filter
-  # melepaskannya. Kalau keduanya tidak bekerja, yang lolos bukan tanda aman.
+  # synthetic band: the pattern must still recognise the shape, then the band filter
+  # releases it. If neither works, something getting through is not a sign of safety.
   if grep -qE "$P_ID_MAP" "$dir/clean" && [ -z "$over_map" ]; then
     echo "  ok   the synthetic ID is matched by the pattern, then released by the band filter"
   else
@@ -146,8 +146,8 @@ BAD
     rc=1
   fi
 
-  # Band-filter IP diuji dua arah juga: alamat internal bentuk nyata harus tersisa,
-  # rentang sintetis dan loopback harus dilepas.
+  # The IP band filter is tested both ways too: an internal address of real shape must
+  # stay, the synthetic range and loopback must be released.
   printf 'svc 10.20.4.7 and 127.0.0.1 and 172.16.9.4\n' > "$dir/ips"
   over_ip=$(grep -oE "$P_IP" "$dir/ips" | sed -E 's/^[^0-9]*//' | tr -d ' :' | grep -vE "$P_IP_SYNTH" || true)
   hit_ip=$(grep -cE "$P_IP" "$dir/ips" || true)
@@ -176,7 +176,7 @@ scan "glpat / PAT"           "$P_PAT"
 idl=$(id_map_hits || true)
 if [ -n "$idl" ]; then echo "::error::a service name mapped to a real project ID was found"; printf '%s\n' "$idl" | head -8; fail=1
 else echo "ok: name to project ID mapping, only the synthetic 1000-1999 band"; fi
-# nilai project: apa pun selain yang diizinkan berarti jalur internal ikut tayang
+# any project: value other than the allowed one means an internal path went public
 pj_bad=$(grep -rhoE --exclude-dir=.git --exclude-dir=_raw --exclude=check-sanitised.sh \
   "project: *'[^']+'|project: *\"[a-z0-9._/-]+\"" . 2>/dev/null \
   | sed -E "s/project: *['\"]([^'\"]+)['\"]/\1/" | sort -u | grep -vE "$P_PROJ_ALLOW" || true)

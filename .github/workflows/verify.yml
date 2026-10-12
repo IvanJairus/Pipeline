@@ -1,7 +1,7 @@
 name: verify
 
-# Dua hal yang dijaga di sini: tidak ada kredensial yang ikut terkirim, dan
-# tidak ada identifier internal yang lolos kembali setelah berkas diedit.
+# Two things are guarded here: no credential gets pushed out with the code, and
+# no internal identifier gets back in after the files are edited.
 on:
   push:
   pull_request:
@@ -55,7 +55,7 @@ jobs:
           files = [f for pat in ("**/*.yml", "**/*.yaml") for f in glob.glob(pat, recursive=True) if "/.git/" not in f]
           for f in files:
               with open(f) as fh:
-                  # deployment.yaml multi-dokumen: safe_load_all, bukan safe_load
+                  # deployment.yaml is multi-document: safe_load_all, not safe_load
                   list(yaml.safe_load_all(fh))
               print("parsed:", f)
           assert files, "no YAML found to check"
@@ -65,10 +65,10 @@ jobs:
           set -e
           python3 - <<'PY'
           import glob, os, sys, yaml
-          # gateway.yml merutekan ke lima template. Kalau salah satu path tidak ada,
-          # GitLab gagal saat membaca include - dan yang gagal adalah pipeline milik
-          # orang lain, bukan pipeline ini. Pemeriksaan ini menutup celah "file
-          # direname, include tidak ikut berubah".
+          # gateway.yml routes to five templates. If one of the paths is missing,
+          # GitLab fails while reading the include, and what fails is someone
+          # else's pipeline, not this pipeline. This check closes the "file
+          # renamed, include left unchanged" gap.
           missing = []
           for f in glob.glob("ci-library/**/*.yml", recursive=True):
               doc = yaml.safe_load(open(f, encoding="utf-8")) or {}
@@ -84,11 +84,11 @@ jobs:
       - name: shellcheck - errors only (blocking)
         run: |
           shellcheck --version
-          # Hanya level `error` yang memblokir. Itu kategori bug nyata - misalnya
-          # `VAR = value` yang secara diam-diam bukan assignment lagi. warning dan
-          # info dilaporkan tapi tidak memblokir, karena berkas di sini adalah
-          # ekstraksi dari sistem yang dirawat di tempat lain: memaksa gaya akan
-          # membuat orang mematikan CI, bukan memperbaiki kode.
+          # Only the `error` level blocks. That category is real bugs, for example
+          # `VAR = value`, which silently stops being an assignment. warning and
+          # info are reported but do not block, because the files here are
+          # extracted from a system maintained elsewhere: forcing style would
+          # make people disable CI instead of fixing code.
           mapfile -t files < <(find . -name '*.sh' -not -path './.git/*')
           shellcheck -x --severity=error "${files[@]}"
       - name: shellcheck - warnings (advisory)
@@ -107,8 +107,8 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      # Versi Groovy dipin plus SHA-256-nya: "berhasil dikompilasi" harus hasil
-      # build, bukan klaim yang bergantung pada apa yang kebetulan ada di runner.
+      # The Groovy version is pinned plus its SHA-256: "compiled successfully" must be
+      # the result of a build, not a claim resting on what happens to be on the runner.
       - name: Install Groovy 5.0.3
         run: |
           set -euo pipefail
@@ -126,9 +126,9 @@ jobs:
         run: groovy -cp shared-library/src shared-library/test/run-fixture.groovy
       - name: gate entry point selftest
         run: groovy -cp shared-library/src ci-library/scripts/run-gate.groovy --selftest
-      # Transkrip yang dibaca halaman /pipelines/ dihasilkan oleh replay.sh. Yang
-      # diperiksa di sini bukan isinya (waktu berubah tiap jalan) tapi bentuknya:
-      # semua barisnya seragam, dan dua-dua verdict ada.
+      # The transcript the /pipelines/ page reads is produced by replay.sh. What is
+      # checked here is not its content (the time changes every run) but its shape:
+      # every line is uniform and both verdicts are present.
       - name: transcript keeps one log shape
         run: bash ci-library/examples/replay.sh --check
 
@@ -153,18 +153,18 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20
-      # Pesan kegagalan gerbang ini dibaca manusia di dalam ticket, jadi bentuk
-      # penulisannya ikut diperiksa: tidak ada tanda hubung panjang yang dipakai
-      # sebagai penyambung kalimat, termasuk bentuk escape Unicode yang tidak
-      # terlihat oleh grep biasa.
+      # The failure message of this gate is read by a human inside a ticket, so the
+      # writing shape is checked too: no long dash used as a sentence connector,
+      # including the Unicode escape forms that
+      # a plain grep cannot see.
       - name: No dash used as a connector
         run: node scripts/assert-copy.mjs --strict
 
-  # Setiap script di repo ini punya --selftest, dan job ini menjalankannya.
-  # Alasannya praktis: baris log adalah kontrak. ci-library/scripts/lib/log.sh
-  # menentukan bentuknya, dan halaman /pipelines/ di portofolio saya menggambar
-  # console dari bentuk itu. Script yang mengubah format tanpa mengubah
-  # halamannya akan ketahuan di sini, bukan di log orang lain.
+  # Every script in this repo has a --selftest, and this job runs them.
+  # The reason is practical: the log line is a contract. ci-library/scripts/lib/log.sh
+  # defines its shape, and the /pipelines/ page in my portfolio draws its
+  # console from that shape. A script that changes the format without changing
+  # the page is caught here, not in someone else's log.
   behavior:
     name: Script selftests (bash + python)
     runs-on: ubuntu-latest
