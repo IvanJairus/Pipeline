@@ -1,5 +1,5 @@
 #!/bin/bash
-# Maven build untuk build standar dan native
+# Maven build for the standard and native builds
 # Supports Nexus library deploy, OCP standard build, and OCP native build.
 #
 # Usage:
@@ -15,7 +15,7 @@ MVN_HOME="${MVN_HOME:-/opt/maven/apache-maven-3.9.9}"
 PATH_SETTING="${PATH_SETTING:-/root/.m2/settings-mobile.xml}"
 
 ###############################################################################
-# build_nexus: build dan deploy library Nexus
+# build_nexus: build and deploy the Nexus library
 #
 # Input:  $1 = project directory path
 # Commands: mvn clean package -U -DskipTests + mvn deploy
@@ -44,7 +44,7 @@ build_nexus() {
 }
 
 ###############################################################################
-# build_standard: Maven build standar untuk service OCP
+# build_standard: standard Maven build for an OCP service
 #
 # Input:  $1 = project directory path
 # Commands: mvn -s {settings} clean package -U -DskipTests
@@ -68,7 +68,7 @@ build_standard() {
 }
 
 ###############################################################################
-# build_native: Maven build native untuk service OCP (GraalVM)
+# build_native: native Maven build for an OCP service (GraalVM)
 #
 # Input:  $1 = project directory path
 # Commands: mvn -s {settings} -Pnative -DskipTests -U native:compile

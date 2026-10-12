@@ -1,14 +1,13 @@
-# Template pipeline untuk library: entities, common, messaging-lib.
+# Pipeline template for libraries: entities, common, messaging-lib.
 #
-# File ini sengaja TIDAK punya stage deploy. Library tidak punya environment
-# tujuan - ia hidup di dalam jar orang lain. Yang bisa dilakukan sebuah library
-# adalah menaikkan versi dan menunggu dipakai.
+# This file has NO deploy stage, and the gap is not an oversight. A library has no
+# target environment; it lives inside somebody else's jar. All a library can do is
+# raise its version and wait to be used.
 #
-# Karena itu promotion untuk project di blok ini ditolak oleh aturan gate, bukan
-# oleh ketiadaan tombol. Bedanya penting: kalau tombolnya saja yang tidak ada,
-# seseorang yang cukup putus asa akan membuat pipeline sendiri yang punya tombol.
-# Kalau aturannya yang menolak, jalur itu tertutup untuk semua orang, termasuk
-# untuk orang yang punya hak.
+# That is why the gate rules, not a missing button, refuse promotion for a project
+# in this block. The difference matters: if only the button were missing, someone
+# desperate enough would build their own pipeline that has one. When the rules
+# refuse, that path is closed to everyone, including people who hold the rights.
 
 image: maven:3.9-eclipse-temurin-17
 
@@ -67,10 +66,10 @@ test:unit:
 
 test:compat:
   stage: test
-  # Konsumen library ini punya branch sendiri; compat check menjalakan test
-  # konsumen utama terhadap jar yang baru dibangun. Tanpa langkah ini, sebuah
-  # perubahan tanda tangan metode baru ketahuan saat tim lain build, bukan saat
-  # library-nya berubah.
+  # The consumers of this library have their own branches, so the compat check
+  # runs the main consumers' tests against the newly built jar. Without this step,
+  # a changed method signature only surfaces when another team builds, not when the
+  # library itself changes.
   needs:
     - job: build:maven-package
       artifacts: true
@@ -119,9 +118,9 @@ publish:maven:
   script:
     - bash ci-library/scripts/publish-artifact.sh maven
   rules:
-    # Hanya branch default yang boleh menulis ke registry. Sebuah branch fitur
-    # yang menghasilkan artifact dengan versi yang sama akan meracuni konsumen
-    # yang memakai LATEST, dan itu tidak bisa ditarik kembali.
+    # Only the default branch may write to the registry. A feature branch that
+    # produces an artifact with the same version would poison the consumers that
+    # use LATEST, and nobody can pull that back afterwards.
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
 feedback:observability:

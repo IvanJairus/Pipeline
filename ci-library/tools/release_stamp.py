@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Version stamp untuk satu pipeline, dan pemeriksaan dua artefak turunannya.
+"""Version stamp for one pipeline, plus checks on its two derived artifacts.
 
-Dipakai oleh job `build:release-stamp` di semua template, dan oleh `scan:sbom-index`
-untuk memverifikasi SBOM yang baru dibuat. Hanya stdlib: sebuah job yang butuh
-pip install di atas image runner adalah job yang akan gagal di runner yang tidak
-punya akses jaringan, dan kegagalan itu akan terlihat seperti kegagalan build.
+Used by the `build:release-stamp` job in every template, and by `scan:sbom-index`
+to verify a freshly built SBOM. Stdlib only: a job that needs pip install on top
+of a runner image is a job that will fail on a runner with no network access,
+and that failure will look like a build failure.
 
-Format baris log sama dengan ci-library/scripts/lib/log.sh dan run-gate.groovy:
+The log line format matches ci-library/scripts/lib/log.sh and run-gate.groovy:
     2026-10-10T23:41:02.118+07:00 INFO build:release-stamp stamped version=R1.4.2
 
-Yang TIDAK dilakukan file ini:
-  - tidak menyentuh jaringan (semua data dari git dan environment GitLab);
-  - tidak menulis versi ke source tree (build-info.json adalah artefak, bukan commit);
-  - tidak pernah menyimpulkan "sukses" dari tidak adanya error.
+What this file does NOT do:
+  - it never touches the network (all data comes from git and the GitLab environment);
+  - it never writes the version into the source tree (build-info.json is an artifact, not a commit);
+  - it never infers "success" from the absence of errors.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ SCOPE = os.environ.get("CI_JOB_NAME") or "release-stamp"
 
 
 def stamp(now: datetime | None = None) -> str:
-    """Waktu lokal dengan offset, tiga digit desimal, sesuai bentuk RFC3339."""
+    """Local time with offset, three fractional digits, in RFC3339 shape."""
     now = now or datetime.now().astimezone()
     return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}" + now.strftime("%z")[:3] + ":" + now.strftime("%z")[3:]
 
@@ -45,13 +45,13 @@ def log(level: str, message: str) -> None:
     print(f"{stamp()} {level} {SCOPE} {message}", file=sys.stderr)
 
 
-# ── versi ───────────────────────────────────────────────────────────────────
+# ── version ──────────────────────────────────────────────────────────────────
 
 TAG_RE = re.compile(r"^(?P<prefix>[A-Z])(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 
 
 def parse_release_tag(tag: str) -> dict | None:
-    """`R1.4.2` -> {prefix: R, major: 1, minor: 4, patch: 2}. Bentuk lain -> None."""
+    """`R1.4.2` -> {prefix: R, major: 1, minor: 4, patch: 2}. Any other shape -> None."""
     m = TAG_RE.match(tag or "")
     if not m:
         return None
@@ -64,11 +64,11 @@ def parse_release_tag(tag: str) -> dict | None:
 
 
 def next_version(last_tag: str | None, prefix: str) -> str:
-    """Versi yang akan datang.
+    """The version that comes next.
 
-    Aturan bump ada di SATU tempat dan dipakai semua template. Kalau tiap tim
-    memilih aturannya sendiri, `R1.5.0` di satu repo dan `R1.5.0` di repo lain
-    berhenti berarti apa-apa.
+    The bump rule lives in ONE place and is used by every template. If each team
+    picked its own rule, `R1.5.0` in one repo and `R1.5.0` in another repo would
+    stop meaning anything.
     """
     parsed = parse_release_tag(last_tag or "")
     if not parsed or parsed["prefix"] != prefix:
@@ -77,7 +77,7 @@ def next_version(last_tag: str | None, prefix: str) -> str:
 
 
 def git(*args: str) -> str:
-    """git dengan hasil yang bisa dipercaya: kalau git gagal, kita tidak menebak."""
+    """git with trustworthy output: when git fails, we do not guess."""
     try:
         out = subprocess.run(("git",) + args, capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.TimeoutExpired):
@@ -86,7 +86,7 @@ def git(*args: str) -> str:
 
 
 def describe_commit() -> dict:
-    """Identitas commit dari repo, bukan dari apa yang dikirim pipeline."""
+    """Commit identity from the repo, not from what the pipeline submitted."""
     sha = os.environ.get("CI_COMMIT_SHA") or git("rev-parse", "HEAD")
     branch = os.environ.get("CI_COMMIT_REF_NAME") or git("rev-parse", "--abbrev-ref", "HEAD")
     tag = os.environ.get("CI_COMMIT_TAG") or ""
@@ -95,10 +95,10 @@ def describe_commit() -> dict:
 
 
 def render_build_info(prefix: str, commit: dict, artifacts: list[dict], now: datetime | None = None) -> dict:
-    """Satu-satunya tempat `status` dihitung.
+    """The one place where `status` is computed.
 
-    sukses = ada commit DAN ada artefak. Tidak ada jalur lain menuju 'success',
-    karena status inilah yang dibaca GateResult sebagai `deploy.result`.
+    success = there is a commit AND there are artifacts. No other path leads to
+    'success', because this status is what GateResult reads as `deploy.result`.
     """
     version = commit["tag"] if commit["tag"] else next_version(commit["lastTag"], prefix)
     present = [a for a in artifacts if a.get("exists")]
@@ -122,35 +122,35 @@ def collect_artifacts(paths: list[str]) -> list[dict]:
     return out
 
 
-# ── pemeriksaan SBOM ────────────────────────────────────────────────────────
+# ── SBOM checks ──────────────────────────────────────────────────────────────
 
 def verify_sbom(path: str) -> list[str]:
-    """Kembalikan daftar masalah; kosong berarti SBOM ini bisa dipakai."""
+    """Return the list of problems; empty means this SBOM is usable."""
     problems: list[str] = []
     if not os.path.exists(path):
-        return [f"sbom: berkas {path} tidak ada"]
+        return [f"sbom: file {path} does not exist"]
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
     except json.JSONDecodeError as exc:
-        return [f"sbom: bukan JSON yang sah ({exc.msg})"]
+        return [f"sbom: not valid JSON ({exc.msg})"]
     if doc.get("bomFormat") != "CycloneDX":
-        problems.append(f"sbom: bomFormat '{doc.get('bomFormat')}' bukan CycloneDX")
+        problems.append(f"sbom: bomFormat '{doc.get('bomFormat')}' is not CycloneDX")
     if not doc.get("specVersion"):
-        problems.append("sbom: specVersion hilang, konsumen tidak bisa tahu bentuknya")
+        problems.append("sbom: specVersion missing, a consumer cannot tell which shape this is")
     components = doc.get("components") or []
     if not components:
-        # Ini jebakan utamanya: dokumen yang sah tapi kosong berarti "tidak ada
-        # dependency", dan itu terbaca bersih oleh siapa pun yang hanya cek
-        # jumlah komponen tanpa melihat dari mana angkanya datang.
-        problems.append("sbom: nol komponen, ini release yang tidak bisa diinventarisasi")
+        # This is the main trap: a valid but empty document means "no
+        # dependencies", and it reads as clean to anyone who checks the component
+        # count without asking where the number came from.
+        problems.append("sbom: zero components, this release cannot be inventoried")
     for i, c in enumerate(components):
         if not c.get("name") or not c.get("version"):
-            problems.append(f"sbom: komponen ke-{i} tanpa name atau version")
+            problems.append(f"sbom: component {i} without name or version")
     return problems
 
 
-# ── kontrak konfigurasi ─────────────────────────────────────────────────────
+# ── config contract ──────────────────────────────────────────────────────────
 
 CONFIG_REQUIRED = {
     "service": str,
@@ -161,29 +161,29 @@ CONFIG_REQUIRED = {
 
 
 def check_config(schema_path: str, docs: list[dict]) -> list[str]:
-    """Kunci wajib dan tipenya, tanpa library skema.
+    """Required keys and their types, without a schema library.
 
-    Cukup untuk kontrak kecil, dan itu memang tujuannya: yang perlu dicegah
-    adalah satu tim mengganti `healthPath` jadi `health_path` dan baru tahu di
-    namespace produksi.
+    Enough for a small contract, and that is the point: what needs preventing is
+    one team renaming `healthPath` to `health_path` and only finding out in the
+    production namespace.
     """
     problems: list[str] = []
     if not os.path.exists(schema_path):
-        return [f"config: skema {schema_path} tidak ada"]
+        return [f"config: schema {schema_path} does not exist"]
     with open(schema_path, encoding="utf-8") as fh:
         try:
             required = json.load(fh).get("required") or {}
         except json.JSONDecodeError as exc:
-            return [f"config: skema bukan JSON sah ({exc.msg})"]
+            return [f"config: schema is not valid JSON ({exc.msg})"]
     for doc in docs:
         name = doc.get("service", "?")
         for key in required:
             if key not in doc:
-                problems.append(f"config {name}: kunci wajib '{key}' hilang")
+                problems.append(f"config {name}: required key '{key}' missing")
             elif not isinstance(doc[key], CONFIG_REQUIRED.get(key, object)):
-                problems.append(f"config {name}: '{key}' bertipe {type(doc[key]).__name__}")
+                problems.append(f"config {name}: '{key}' has the wrong type {type(doc[key]).__name__}")
         if isinstance(doc.get("port"), int) and not (1024 <= doc["port"] <= 65535):
-            problems.append(f"config {name}: port {doc['port']} di luar rentang yang boleh dipakai")
+            problems.append(f"config {name}: port {doc['port']} outside the range that may be used")
     return problems
 
 
@@ -197,34 +197,34 @@ def selftest() -> int:
             fails.append(name)
 
     ok(parse_release_tag("R1.4.2") == {"prefix": "R", "major": 1, "minor": 4, "patch": 2}, "parse tag")
-    ok(parse_release_tag("1.4.2") is None, "tag tanpa prefix ditolak")
-    ok(parse_release_tag("R1.4") is None, "tag dua angka ditolak")
+    ok(parse_release_tag("1.4.2") is None, "a tag without a prefix is refused")
+    ok(parse_release_tag("R1.4") is None, "a two-number tag is refused")
     ok(next_version("R1.4.2", "R") == "R1.4.3", "bump patch")
-    ok(next_version(None, "W") == "W0.1.0", "tanpa tag = awal")
-    ok(next_version("M2.0.0", "W") == "W0.1.0", "prefix lain tidak ikut dihitung")
+    ok(next_version(None, "W") == "W0.1.0", "no tag = the start")
+    ok(next_version("M2.0.0", "W") == "W0.1.0", "another prefix is not counted in")
 
     info = render_build_info("R", {"sha": "abc1234def", "short": "abc1234", "branch": "main", "tag": "R1.4.2", "lastTag": "R1.4.1"}, [])
-    ok(info["status"] == "no result reported", "tanpa artefak tidak pernah success")
-    ok(info["version"] == "R1.4.2", "tag eksplisit dipakai apa adanya")
+    ok(info["status"] == "no result reported", "no artifacts is never success")
+    ok(info["version"] == "R1.4.2", "an explicit tag is used as it is")
     with_art = render_build_info("R", {"sha": "abc", "short": "abc", "branch": "main", "tag": "", "lastTag": "R1.4.2"}, [{"path": "a.jar", "exists": True}])
-    ok(with_art["status"] == "success", "artefak ada = success")
-    ok(with_art["version"] == "R1.4.3", "tanpa tag = bump dari tag terakhir")
+    ok(with_art["status"] == "success", "an artifact present = success")
+    ok(with_art["version"] == "R1.4.3", "no tag = bump from the last tag")
 
-    ok(verify_sbom("tidak-ada.json") == ["sbom: berkas tidak-ada.json tidak ada"], "sbom hilang")
-    ok(any("nol komponen" in p for p in verify_sbom_write({"bomFormat": "CycloneDX", "specVersion": "1.5", "components": []})), "sbom kosong tertangkap")
-    ok(verify_sbom_write({"bomFormat": "CycloneDX", "specVersion": "1.5", "components": [{"name": "jackson", "version": "2.15.0"}]}) == [], "sbom sah lolos")
-    ok(any("bukan CycloneDX" in p for p in verify_sbom_write({"bomFormat": "SPDX", "components": [{"name": "a", "version": "1"}]})), "format lain tertangkap")
+    ok(verify_sbom("no-such-file.json") == ["sbom: file no-such-file.json does not exist"], "missing sbom")
+    ok(any("zero components" in p for p in verify_sbom_write({"bomFormat": "CycloneDX", "specVersion": "1.5", "components": []})), "empty sbom caught")
+    ok(verify_sbom_write({"bomFormat": "CycloneDX", "specVersion": "1.5", "components": [{"name": "jackson", "version": "2.15.0"}]}) == [], "valid sbom passes")
+    ok(any("is not CycloneDX" in p for p in verify_sbom_write({"bomFormat": "SPDX", "components": [{"name": "a", "version": "1"}]})), "another format caught")
 
-    ok(any("healthPath" in p for p in check_config_write({"required": {"healthPath": "str"}}, [{"service": "a", "port": 8080, "owners": ["x"]}])), "kunci wajib hilang")
-    ok(any("port" in p for p in check_config_write({"required": {"port": "int"}}, [{"service": "a", "port": 22, "owners": ["x"]}])), "port rendah tertolak")
-    ok(check_config_write({"required": {"port": "int"}}, [{"service": "a", "port": 8080, "owners": ["x"]}]) == [], "config sah lolos")
+    ok(any("healthPath" in p for p in check_config_write({"required": {"healthPath": "str"}}, [{"service": "a", "port": 8080, "owners": ["x"]}])), "required key missing")
+    ok(any("port" in p for p in check_config_write({"required": {"port": "int"}}, [{"service": "a", "port": 22, "owners": ["x"]}])), "low port refused")
+    ok(check_config_write({"required": {"port": "int"}}, [{"service": "a", "port": 8080, "owners": ["x"]}]) == [], "valid config passes")
 
     line = capture_log(lambda: log("INFO", "stamped version=R1.4.2"))
-    ok(re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2} INFO \S+ stamped version=R1\.4\.2$", line) is not None, "bentuk baris log")
+    ok(re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2} INFO \S+ stamped version=R1\.4\.2$", line) is not None, "log line shape")
 
     for f in fails:
         print(f"release_stamp selftest FAIL {f}", file=sys.stderr)
-    print("release_stamp selftest: ok" if not fails else f"release_stamp selftest: {len(fails)} kegagalan", file=sys.stderr)
+    print("release_stamp selftest: ok" if not fails else f"release_stamp selftest: {len(fails)} failures", file=sys.stderr)
     return 0 if not fails else 1
 
 
@@ -264,8 +264,8 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--tag-prefix", default="R")
     ap.add_argument("--output", default="build-info.json")
-    ap.add_argument("--artifact", action="append", default=[], help="path artefak yang harus ada")
-    ap.add_argument("--audit-line", action="store_true", help="tulis satu baris audit ke stderr")
+    ap.add_argument("--artifact", action="append", default=[], help="path of an artifact that must exist")
+    ap.add_argument("--audit-line", action="store_true", help="write one audit line to stderr")
     ap.add_argument("--verify-sbom", metavar="FILE")
     ap.add_argument("--check-config", metavar="SCHEMA")
     ap.add_argument("--selftest", action="store_true")
@@ -302,8 +302,8 @@ def main(argv: list[str]) -> int:
         fh.write("\n")
     log("INFO", f"stamped version={info['version']} commit={info['commit'] or 'none'} artifacts={len(info['artifacts'])} status={info['status']}")
     if args.audit_line:
-        # Satu baris yang sama yang akan dicari orang di agregator log enam
-        # bulan dari sekarang, ditulis saat release-nya terjadi.
+        # The same one line people will search for in the log aggregator six
+        # months from now, written while the release happens.
         log("INFO", f"audit release={info['version']} pipeline={info['pipeline']} branch={info['branch'] or 'none'}")
     print(json.dumps(info, sort_keys=True))
     return 0 if info["status"] == "success" else 1

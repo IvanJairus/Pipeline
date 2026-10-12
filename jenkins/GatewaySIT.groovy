@@ -13,17 +13,17 @@ pipeline {
             steps {
                 script {
                     println('=== === === === ' + STAGE_NAME + ' === === === ===')
-                    def jsonObject = readJSON(text: DATA) // DATA berasal dari Post content parameters di JENKINS
+                    def jsonObject = readJSON(text: DATA) // DATA comes from the Post content parameters in JENKINS
                     // echo "${DATA}"
 
-                    // Ambil dan konversi ke lowercase
+                    // Read the values and normalise case
                     def issueKey = jsonObject.issue?.key
                     def fromStatus = jsonObject?.changelog?.items?.getAt(0)?.fromString?.toLowerCase()
                     def toStatus = jsonObject?.changelog?.items?.getAt(0)?.toString?.toLowerCase()
                     def summary = jsonObject?.issue?.fields?.summary?.toLowerCase()
                     def stage = jsonObject?.issue?.fields?.customfield_10744?.value?.toUpperCase()
 
-                    // Set ke env supaya bisa diakses di stage lain
+                    // Publish to env so the other stages can read them
                     env.ISSUE_KEY = issueKey
                     env.FROM_STATUS = fromStatus
                     env.TO_STATUS = toStatus
@@ -31,7 +31,7 @@ pipeline {
                     env.STAGE = stage
                     env.BRANCH = ''
 
-                    // Cetak untuk verifikasi
+                    // Print them for verification
                     echo "ISSUE_KEY: ${ISSUE_KEY}"
                     echo "ISSUE_SUMMARY: ${ISSUE_SUMMARY}"
                     echo "FROM_STATUS: ${FROM_STATUS}"
@@ -46,14 +46,14 @@ pipeline {
 }
 
 // =============================================================================
-// === FUNGSI-FUNGSI BANTUAN (HELPER FUNCTIONS) ================================
+// === HELPER FUNCTIONS ========================================================
 // =============================================================================
 
 
 def triggerJobs() {
     def jobKey = "${FROM_STATUS}:${TO_STATUS}".trim().toLowerCase()
     
-    // Mapping job berdasarkan perpindahan tiket dan parameternya masing-masing
+    // Which job to fire, keyed by the ticket transition, plus its own parameters
     def jobMapping = [
         "backlog:backend": [
             jobName: "Backend",
@@ -111,31 +111,31 @@ def triggerJobs() {
         ],
     ]
 
-    echo "Daftar jobMapping keys: ${jobMapping.keySet()}"
+    echo "List of jobMapping keys: ${jobMapping.keySet()}"
 
-    // Mengecek apakah perpindahan tiket memiliki job terkait
+    // Check whether this ticket transition has a job bound to it
     if (jobMapping.containsKey(jobKey)) {
         def jobInfo = jobMapping[jobKey]
-        echo "Menjalankan job: ${jobInfo.jobName} dengan parameter: ${jobInfo.params}"
+        echo "Running job: ${jobInfo.jobName} with parameters: ${jobInfo.params}"
         build wait: false, job: jobInfo.jobName, parameters: jobInfo.params
     } else {
-        echo "Tidak ada job yang sesuai untuk perpindahan ${jobKey}, job tidak dijalankan."
+        echo "No job matches the transition ${jobKey}, so no job was triggered."
     }
 }
 
 /**
- * Mencari lampiran di sebuah tiket Jira berdasarkan pola nama file,
- * dan mengembalikan URL konten dari lampiran yang paling baru jika ada lebih dari satu.
+ * Find an attachment on a Jira ticket by file name pattern, and return the content
+ * URL of the newest one when more than one matches.
  *
- * @param issueKey Key dari tiket Jira.
- * @param fileNamePattern Pola nama file yang dicari (misal: "_manifest.yaml").
- * @param jiraToken Token untuk autentikasi API.
- * @return String berisi URL konten file, atau null jika tidak ditemukan.
+ * @param issueKey Key of the Jira ticket.
+ * @param fileNamePattern File name pattern to look for (for example "_manifest.yaml").
+ * @param jiraToken Token used for API authentication.
+ * @return String holding the file content URL, or null when nothing was found.
  */
 def getJiraAttachmentUrl(String issueKey, String fileNamePattern, String jiraToken) {
     echo "Searching for the latest attachment matching '*${fileNamePattern}' in ticket ${issueKey}..."
     try {
-        // Minta field 'attachment' untuk mendapatkan daftar lampiran
+        // Ask for the 'attachment' field to get the list of attachments
         def response = sh(
             script: """
                 curl -k --silent --show-error -X GET --location "${env.JIRA_URL}/rest/api/2/issue/${issueKey}?fields=attachment" \\
@@ -147,17 +147,17 @@ def getJiraAttachmentUrl(String issueKey, String fileNamePattern, String jiraTok
         def issueData = readJSON(text: response)
         
         if (issueData.fields.attachment) {
-            // 1. Filter semua lampiran yang namanya cocok dengan pola
+            // 1. Keep every attachment whose name matches the pattern
             def matchingAttachments = issueData.fields.attachment.findAll { 
                 it.filename.endsWith(fileNamePattern) 
             }
             
             if (!matchingAttachments.isEmpty()) {
-                // 2. Sortir lampiran yang cocok berdasarkan tanggal 'created' secara menurun (dari baru ke lama)
-                // Tanggal dalam format ISO 8601 bisa disortir sebagai string
+                // 2. Sort the matches by the 'created' date, descending (newest first)
+                // ISO 8601 dates sort correctly as plain strings
                 def sortedAttachments = matchingAttachments.sort { a, b -> b.created <=> a.created }
                 
-                // 3. Ambil lampiran pertama dari daftar yang sudah disortir (ini yang paling baru)
+                // 3. Take the first entry of the sorted list; that is the newest one
                 def latestAttachment = sortedAttachments[0]
                 def contentUrl = latestAttachment.content
                 
@@ -177,16 +177,16 @@ def getJiraAttachmentUrl(String issueKey, String fileNamePattern, String jiraTok
 }
 
 /**
- * Memfilter daftar label dan mengembalikan hanya label yang cocok dengan pola rilis (misal: R1.x).
+ * Filter a label list and return only the labels matching the release pattern (for example R1.x).
  *
- * @param allLabels Sebuah List berisi semua label dari tiket.
- * @return List baru yang hanya berisi label rilis.
+ * @param allLabels A List holding every label on the ticket.
+ * @return A new List containing only the release labels.
  */
 def getReleaseLabels(List allLabels) {
-    // Pola yang kita cari adalah string yang diawali dengan "R1."
+    // The shape we look for is a string starting with "R1."
     def releasePattern = /^R1\.\d+$/
 
-    // Menggunakan .findAll untuk memfilter list berdasarkan pola regex
+    // .findAll keeps the list entries that match the regex pattern
     def releaseLabels = allLabels.findAll { label ->
         (label =~ releasePattern)
     }

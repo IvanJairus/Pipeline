@@ -1,27 +1,27 @@
 #!/usr/bin/env groovy
 /*
-  Titik masuk gate untuk sisi GitLab.
+  Gate entry point for the GitLab side.
 
-  Pipeline memanggil satu file ini, dan file ini hanya boleh mengatakan ya atau
-  tidak atas dasar aturan yang sama persis dengan yang dipakai sisi Jenkins:
-  ReleaseRules, GateResult dan DeploymentPlan dari shared-library/src. Tidak ada
-  ambang yang diketik ulang di sini. Kalau sebuah angka tidak bisa ditunjuk ke
-  salah satu dari tiga kelas itu, angka itu tidak boleh muncul di baris ini.
+  The pipeline calls this one file, and this file may only say yes or no based on
+  the exact same rules the Jenkins side uses: ReleaseRules, GateResult and
+  DeploymentPlan from shared-library/src. No threshold is retyped here. If a
+  number cannot be traced to one of those three classes, it must not appear on
+  this line.
 
-  Pemakaian:
+  Usage:
     groovy -cp shared-library/src ci-library/scripts/run-gate.groovy \
       --manifest release.json --scan trivy-report.json \
       --quality sonar-gate.json --build build-info.json
     groovy -cp shared-library/src ci-library/scripts/run-gate.groovy --selftest
 
-  Keluaran:
-    gate-verdict.json  keputusan mesin, dibaca job berikutnya
-    gate-summary.txt   satu baris yang ditempel ke ticket
-  Kode keluar: 0 kalau lulus, 1 kalau ditolak. Stage gate memang harus merah.
+  Output:
+    gate-verdict.json  the machine decision, read by the next job
+    gate-summary.txt   one line pasted into the ticket
+  Exit code: 0 if it passes, 1 if it refuses. The gate stage is meant to be red.
 
-  Format baris log mengikuti ci-library/scripts/lib/log.sh: waktu RFC3339 dengan
-  offset, LEVEL, scope, pesan, lalu pasangan kunci=nilai. Dua implementasi, satu
-  bentuk, supaya stream dari shell dan dari Groovy bisa dibaca sebagai satu log.
+  The log line format follows ci-library/scripts/lib/log.sh: RFC3339 time with
+  offset, LEVEL, scope, message, then key=value pairs. Two implementations, one
+  shape, so that streams from shell and from Groovy read as a single log.
 */
 
 import com.reference.release.ReleaseRules
@@ -33,9 +33,9 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 // ── log ─────────────────────────────────────────────────────────────────────
-// Tanpa `def` di sini dengan sengaja: variabel skrip yang dideklarasikan dengan
-// def bersifat lokal untuk run() dan tidak terlihat oleh method, jadi log() akan
-// jatuh pada scope yang tidak ada. Binding bisa dilihat oleh keduanya.
+// Deliberately without `def` here: script variables declared with def are local
+// to run() and invisible to methods, so log() would reach for a scope that does
+// not exist. The binding is visible to both.
 scope = System.getenv('CI_JOB_NAME') ?: 'run-gate'
 LOG_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSxxx")
 
@@ -57,7 +57,7 @@ Map parseArgs(String[] argv) {
             case '--no-environment': out.noEnvironment = true; break
             case '--artifact-only':  out.artifactOnly = true; break
             case '--selftest':       out.selftest = true; break
-            default: throw new IllegalArgumentException("argumen tidak dikenal: ${argv[i]}")
+            default: throw new IllegalArgumentException("unknown argument: ${argv[i]}")
         }
     }
     return out
@@ -67,8 +67,8 @@ Map readJson(String path, String label) {
     if (!path) return null
     def f = new File(path)
     if (!f.exists()) {
-        // Berkas yang hilang BUKAN nol. Perbedaannya persis alasan kelas ini ada:
-        // scanner yang tidak selesai akan terlihat seperti "tidak ada temuan".
+        // A missing file is NOT zero. The difference is exactly the reason this
+        // class exists: a scanner that never finished would look like "no findings".
         log('WARN', "read ${label} missing path=${path} treated=absent")
         return null
     }
@@ -76,14 +76,14 @@ Map readJson(String path, String label) {
 }
 
 /*
-  Adaptor trivy-report.json -> bentuk yang dibaca GateResult.
+  Adaptor: trivy-report.json -> the shape GateResult reads.
 
-  Kelas gate sengaja tidak tahu apa pun tentang Trivy: ia menerima daftar temuan.
-  Terjemahannya hidup di sini, dan di sinilah kesalahan paling mahal di pipeline
-  bisa terjadi - sebuah Results yang kosong karena scanner-nya mati akan
-  menghasilkan daftar temuan kosong, yaitu "bersih". Karena itu `error` ikut
-  dibawa, dan sbom diperiksa sebagai fakta terpisah, bukan disimpulkan dari
-  jumlah temuan.
+  The gate class deliberately knows nothing about Trivy: it takes a list of
+  findings. The translation lives here, and this is where the most expensive
+  mistake in the pipeline can happen: a Results that is empty because the
+  scanner died would produce an empty findings list, which reads as "clean".
+  That is why `error` is carried along, and the sbom is checked as a separate
+  fact, not inferred from the finding count.
 */
 Map toGateScan(Map trivy, boolean sbomProduced) {
     if (!trivy) return null
@@ -97,13 +97,12 @@ Map toGateScan(Map trivy, boolean sbomProduced) {
 }
 
 /*
-  Adaptor sonar-gate.json -> bentuk yang dibaca GateResult.
+  Adaptor: sonar-gate.json -> the shape GateResult reads.
 
-  `null as Double` di Groovy adalah 0.0. Kalau konversi itu dipakai di sini,
-  coverage yang tidak terukur berubah menjadi nol persen, dan gate menolak dengan
-  alasan yang salah: "di bawah ambang", padahal yang terjadi adalah tidak ada
-  angka. Yang benar adalah membiarkannya null supaya kelas gate bisa berkata
-  "not measured".
+  `null as Double` in Groovy is 0.0. If that coercion were used here, an
+  unmeasured coverage would become zero percent, and the gate would refuse with
+  the wrong reason: "below floor", when in fact no number exists. The correct
+  move is to leave it null so the gate class can say "not measured".
 */
 Map toGateQuality(Map sonar) {
     if (!sonar) return null
@@ -119,7 +118,7 @@ Map toGateQuality(Map sonar) {
     ]
 }
 
-// ── jalan ───────────────────────────────────────────────────────────────────
+// ── run ─────────────────────────────────────────────────────────────────────
 int run(Map opts) {
     log('INFO', "start manifest=${opts.manifest ?: 'none'} scan=${opts.scan ?: 'none'} quality=${opts.quality ?: 'none'}")
 
@@ -134,7 +133,7 @@ int run(Map opts) {
         mp.each { problems << "manifest: ${it}" }
         log(mp ? 'ERROR' : 'INFO', "validateManifest problems=${mp.size()}")
     } else {
-        problems << 'manifest: release.json tidak dibaca, tidak ada yang bisa diverifikasi'
+        problems << 'manifest: release.json was not read, nothing can be verified'
         log('ERROR', 'validateManifest skipped=missing-manifest')
     }
 
@@ -144,8 +143,8 @@ int run(Map opts) {
         log(pp ? 'ERROR' : 'INFO', "validatePromotion ${opts.from}->${opts.to} problems=${pp.size()}")
     }
 
-    // SBOM adalah fakta terpisah dari "tidak ada temuan": ia ada kalau berkasnya
-    // ada dan tidak kosong, bukan kalau scanner-nya diam.
+    // The SBOM is a separate fact from "no findings": it exists when the file
+    // exists and is not empty, not when the scanner stays quiet.
     def sbomFile = new File('sbom.json')
     boolean sbomProduced = sbomFile.exists() && sbomFile.length() > 2
 
@@ -168,10 +167,10 @@ int run(Map opts) {
         summary : problems.isEmpty() ? gate.summary : gate.summary + '; ' + problems.join('; '),
         failures: gate.failures + problems,
         warnings: gate.warnings,
-        // `tier` di sini sudah hasil tierOf() dari build(). Memanggil tierOf lagi
-        // pada baris ini bukan sekadar pemborosan: tierOf tidak idempoten, ia
-        // melihat svc.tier yang sekarang berupa angka, tidak menemukannya di peta
-        // TIER, dan mengembalikan gateway. Transkrip replay yang menangkap itu.
+        // The `tier` here is already the tierOf() result from build(). Calling tierOf
+        // again on this line is not just wasteful: tierOf is not idempotent, it sees
+        // svc.tier which is now a number, does not find it in the TIER map, and
+        // returns gateway. The replay transcript caught that.
         plan    : plan.collect { [id: it.id, name: it.name, tier: it.tier, action: it.skip ? 'skipped' : 'deploy', watermark: it.watermark] },
         checkedAt: ZonedDateTime.now().format(LOG_FORMAT),
     ]
@@ -185,50 +184,50 @@ int run(Map opts) {
 
 // ── selftest ────────────────────────────────────────────────────────────────
 /*
-  Dijalankan tanpa runner, tanpa jaringan, tanpa berkas pipeline. Yang diuji
-  adalah hal yang paling mudah rusak diam-diam: bentuk baris log, dan fakta
-  bahwa input yang hilang menghasilkan penolakan, bukan kelulusan.
+  Runs with no runner, no network, no pipeline files. What it tests is the thing
+  that breaks silently most easily: the log line shape, and the fact that missing
+  input produces a refusal, not a pass.
 */
 int selftest() {
     int fails = 0
-    // Parameternya sengaja tanpa tipe: hasil `=~` adalah Matcher, dan Groovy
-    // tidak meng-coerce-nya ke boolean di batas closure yang bertipe.
+    // The parameter is deliberately untyped: the result of `=~` is a Matcher, and
+    // Groovy does not coerce it to boolean at the edge of a typed closure.
     def check = { String name, ok ->
         if (!ok) { System.err.println("run-gate selftest FAIL ${name}"); fails++ }
     }
 
     def line = captureStderr { log('INFO', 'hello key=value') }
-    check('bentuk baris log', line =~ /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2} INFO \S+ hello key=value$/)
-    check('level salah ditolak', GateResult.evaluate(null).failures.size() == 1)
+    check('log line shape', line =~ /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2} INFO \S+ hello key=value$/)
+    check('a wrong level is refused', GateResult.evaluate(null).failures.size() == 1)
 
     def empty = GateResult.evaluate([:])
-    check('input kosong ditolak', !empty.passed)
+    check('empty input refused', !empty.passed)
 
     def noScan = GateResult.evaluate([deploy: [result: 'success'], quality: [status: 'passed', coverage: 80, duplication: 2], scan: null])
-    check('scan hilang ditolak', !noScan.passed && noScan.failures.any { it.contains('no report') })
+    check('missing scan refused', !noScan.passed && noScan.failures.any { it.contains('no report') })
 
     def ok = GateResult.evaluate([
         deploy : [result: 'success'],
         quality: [status: 'passed', coverage: 81.4, duplication: 3.1],
         scan   : [findings: [[severity: 'HIGH'], [severity: 'LOW']], sbom: true],
     ])
-    check('input lengkap lulus', ok.passed)
-    check('promotion mundur ditolak', ReleaseRules.validatePromotion('prod', 'sit').size() > 0)
+    check('complete input passes', ok.passed)
+    check('backward promotion refused', ReleaseRules.validatePromotion('prod', 'sit').size() > 0)
 
-    // Adaptor: dua jebakan yang membuat pipeline hijau padahal datanya tidak ada.
+    // Adaptors: the two traps that make a pipeline green when the data is not there.
     def adapted = toGateScan([Results: [[Vulnerabilities: [[Severity: 'CRITICAL', VulnerabilityID: 'CVE-1', PkgName: 'jackson']]]]], true)
-    check('trivy diadaptasi', adapted.findings.size() == 1 && adapted.findings[0].severity == 'CRITICAL')
-    check('scanner mati bukan berarti bersih', toGateScan([Results: [], Error: 'timeout'], true).error == 'timeout')
+    check('trivy adapted', adapted.findings.size() == 1 && adapted.findings[0].severity == 'CRITICAL')
+    check('a dead scanner does not mean clean', toGateScan([Results: [], Error: 'timeout'], true).error == 'timeout')
 
     def noCoverage = toGateQuality([projectStatus: [status: 'OK'], conditions: []])
-    check('coverage hilang tetap hilang', noCoverage.coverage == null)
+    check('missing coverage stays missing', noCoverage.coverage == null)
     def gateNoCoverage = GateResult.evaluate([deploy: [result: 'success'], quality: noCoverage, scan: [findings: [], sbom: true]])
-    check('ditolak karena tidak terukur', !gateNoCoverage.passed && gateNoCoverage.failures.any { it.contains('not measured') })
-    // Yang tidak boleh muncul adalah angka yang dikarang: "0.0% below floor"
-    // terdengar seperti tim gagal menulis test, padahal scanner-nya diam.
-    check('tidak ada persentase yang dikarang', !gateNoCoverage.failures.any { it =~ /0(\.0)?%/ })
+    check('refused because it is not measured', !gateNoCoverage.passed && gateNoCoverage.failures.any { it.contains('not measured') })
+    // What must never appear is an invented number: "0.0% below floor" sounds like
+    // a team failed to write tests, when the scanner stayed silent.
+    check('no invented percentage', !gateNoCoverage.failures.any { it =~ /0(\.0)?%/ })
 
-    System.err.println(fails == 0 ? 'run-gate selftest: ok' : "run-gate selftest: ${fails} kegagalan")
+    System.err.println(fails == 0 ? 'run-gate selftest: ok' : "run-gate selftest: ${fails} failures")
     return fails == 0 ? 0 : 1
 }
 

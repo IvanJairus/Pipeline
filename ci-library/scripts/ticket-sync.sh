@@ -1,20 +1,20 @@
 #!/bin/bash
-# Menempelkan verdict gate ke tiket, dari sisi pipeline.
+# Attach the gate verdict to the ticket, from the pipeline side.
 #
-# Kerjanya ada di ci-library/tools/ticket_sync.py (retry, idempotency, bentuk
-# permintaan). Yang dilakukan file ini hanya memutuskan tiket mana yang dimaksud,
-# karena keputusan itu datang dari tiga tempat dengan prioritas berbeda:
+# The work lives in ci-library/tools/ticket_sync.py (retry, idempotency, request
+# shape). All this file decides is which ticket is meant, because that decision
+# comes from three places with different precedence:
 #
-#   1. --issue / GITLAB_ISSUE       eksplisit, dari orang yang menjalankan
-#   2. pesan commit                 "See #471" atau "fin-471"
-#   3. release.json                 field tracker, untuk pipeline yang dipicu
-#                                   webhook dari sistem tiket
+#   1. --issue / GITLAB_ISSUE       explicit, from the person running the job
+#   2. commit message               "See #471" or "fin-471"
+#   3. release.json                 tracker field, for pipelines triggered
+#                                   by a webhook from the ticketing system
 #
-# Kalau ketiganya kosong, file ini TIDAK menebak. Ia mencetak verdict ke stdout
-# dan keluar nol: pipeline yang mengirim komentar ke tiket salah lebih merusak
-# daripada pipeline yang tidak mengirim komentar.
+# If all three are empty, this file does NOT guess. It prints the verdict to
+# stdout and exits zero: a pipeline that posts a comment on the wrong ticket
+# does more damage than a pipeline that posts no comment.
 #
-# Pemakaian:
+# Usage:
 #   ticket-sync.sh post [--issue 471] [--jira FIN-471]
 #   ticket-sync.sh --selftest
 
@@ -31,12 +31,12 @@ TOOLS="${SCRIPT_DIR}/../tools"
 
 die() { log_fail "$1" "${@:2}"; exit 1; }
 
-# Nomor tiket dari pesan commit. Dua bentuk diterima: referensi GitLab (#471)
-# dan kunci tiket sistem lain (FIN-471), karena pipeline ini dipakai oleh repo
-# yang trackernya bukan GitLab.
+# Ticket number from the commit message. Two forms are accepted: a GitLab
+# reference (#471) and a ticket key from another system (FIN-471), because this
+# pipeline is used by repos whose tracker is not GitLab.
 #
-# Sengaja pakai grep -o, bukan sed dengan `.*` di depan: `.*` itu serakah, jadi
-# "after FIN-471" pernah terbaca sebagai "IN-471" dan selftest menangkapnya.
+# Deliberately grep -o rather than sed with `.*` in front: that `.*` is greedy,
+# so "after FIN-471" was once read as "IN-471", and the selftest caught it.
 issue_from_commit() {
   printf '%s' "$(printf '%s' "${1:-}" | grep -oE '#[0-9]{1,8}' | head -1 | tr -d '#')"
 }
@@ -79,34 +79,34 @@ cmd_post() {
 selftest() {
   local fails=0
   says() { grep -q "$2" "$1" || { echo "ticket-sync selftest FAIL $3" >&2; fails=$((fails+1)); }; return 0; }
-  eq()   { [ "$2" = "$3" ] || { echo "ticket-sync selftest FAIL $1: dapat '$2' mau '$3'" >&2; fails=$((fails+1)); }; return 0; }
+  eq()   { [ "$2" = "$3" ] || { echo "ticket-sync selftest FAIL $1: got '$2' expected '$3'" >&2; fails=$((fails+1)); }; return 0; }
   try()  { "$@" >out.txt 2>err.txt || true; }
 
   tmp="$(mktemp -d)"; cd "$tmp"
   export CI_PROJECT_NAME=core-api CI_PIPELINE_ID=1421
 
-  eq "issue dari pesan commit" "$(issue_from_commit 'Merge branch fix/471-timeout into master #471')" "471"
-  eq "tanpa referensi, kosong" "$(issue_from_commit 'just a subject')" ""
-  eq "kunci tracker terbaca" "$(tracker_from_commit 'fix timeout after FIN-471 approval')" "FIN-471"
-  eq "tracker dari manifest" "$(printf '%s' '{"tracker":"BOS-9"}' > release.json && tracker_from_manifest release.json)" "BOS-9"
-  eq "manifest hilang bukan error" "$(tracker_from_manifest tidak-ada.json)" ""
+  eq "issue from the commit message" "$(issue_from_commit 'Merge branch fix/471-timeout into master #471')" "471"
+  eq "no reference, empty" "$(issue_from_commit 'just a subject')" ""
+  eq "tracker key read" "$(tracker_from_commit 'fix timeout after FIN-471 approval')" "FIN-471"
+  eq "tracker from the manifest" "$(printf '%s' '{"tracker":"BOS-9"}' > release.json && tracker_from_manifest release.json)" "BOS-9"
+  eq "missing manifest is not an error" "$(tracker_from_manifest no-such-file.json)" ""
 
-  # Tidak ada tiket yang bisa dituju: verdict tetap tercetak, kode keluar nol.
+  # No ticket to address: the verdict is still printed, and the exit code is zero.
   try env DRY_RUN=1 GITLAB_ISSUE= JIRA_ISSUE= CI_PROJECT_NAME=core-api \
     bash "$SCRIPT_DIR/ticket-sync.sh" post
-  says out.txt "pipeline" "verdict tidak tercetak saat tidak ada tiket"
+  says out.txt "pipeline" "the verdict is not printed when no ticket exists"
 
-  # Verdict hilang: yang terkirim adalah penolakan, bukan kelulusan.
+  # Missing verdict: what gets sent is a refusal, not a pass.
   printf '%s\n' '{"passed":false,"summary":"gate failed: 1 critical","failures":["vulnerabilities: 1 critical (allowed 0)"],"plan":[]}' > gate-verdict.json
   try env DRY_RUN=1 GITLAB_ISSUE=471 JIRA_ISSUE= CI_PIPELINE_URL=https://gitlab.example.internal/x/-/pipelines/1421 \
     bash "$SCRIPT_DIR/ticket-sync.sh" post
-  says err.txt "gitlab_issue=471" "tiket dari argumen tidak dipakai"
-  says out.txt "BLOCKED" "verdict merah tidak tertulis sebagai kelulusan"
-  says out.txt "idempotency: gate-" "kunci idempotency hilang"
+  says err.txt "gitlab_issue=471" "the ticket from the argument was not used"
+  says out.txt "BLOCKED" "a red verdict written as a pass"
+  says out.txt "idempotency: gate-" "idempotency key missing"
 
   cd /; rm -rf "$tmp"
   if [ "$fails" = "0" ]; then echo "ticket-sync selftest: ok" >&2; return 0; fi
-  echo "ticket-sync selftest: $fails kegagalan" >&2; return 1
+  echo "ticket-sync selftest: $fails failures" >&2; return 1
 }
 
 main() {

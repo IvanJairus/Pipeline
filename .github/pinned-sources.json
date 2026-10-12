@@ -1,0 +1,132 @@
+{
+  "note": "Every file under assets/data/src/ is vendored verbatim from one pinned commit of IvanJairus/Pipeline by scripts/sync-sources.mjs, which also writes rules.lock.json and the line counts here. Do not edit a file body here or on disk: change upstream, bump ref, re-sync. scripts/check-rules-sync.mjs fails if any of that drifts.",
+  "upstream": "IvanJairus/Pipeline",
+  "ref": "c488f25277f23bdcb84a557a06f8641ea955433a",
+  "files": {
+    "assets/data/src/gitlab-ci.yml": {
+      "sha256": "def9f05429eca68635c21ff86e8f890ad65e93f6429b7d5fe4c7ef4700cb597f",
+      "upstream": "ci-library/includes/gitlab-ci.yml",
+      "bytes": 385
+    },
+    "assets/data/src/gateway.yml": {
+      "sha256": "3990d160b62a11acf5fdc1989871887cd080c959f3401b013f8af747a0694276",
+      "upstream": "ci-library/gateway.yml",
+      "bytes": 3905
+    },
+    "assets/data/src/backend.yml": {
+      "sha256": "19b506cbb25d185ead394c5dd398b91199ac4bbdd66db0dea22f603f4202124d",
+      "upstream": "ci-library/templates/backend.yml",
+      "bytes": 10628
+    },
+    "assets/data/src/web.yml": {
+      "sha256": "043d14462b20b5b572657500043ce875fe58b88b1e9a8a1fc9b2e296568d6df8",
+      "upstream": "ci-library/templates/web.yml",
+      "bytes": 5085
+    },
+    "assets/data/src/log.sh": {
+      "sha256": "a6ecc4bf2c65879fb1329e3032b86c6802bb9262acdc81df05c30f644ee6567a",
+      "upstream": "ci-library/scripts/lib/log.sh",
+      "bytes": 4012
+    },
+    "assets/data/src/publish-artifact.sh": {
+      "sha256": "1be9976f5db3b3e73e7f40bb76691fe6c4e81f77d0cbf405e08baf1252aa6658",
+      "upstream": "ci-library/scripts/publish-artifact.sh",
+      "bytes": 7617
+    },
+    "assets/data/src/deploy.sh": {
+      "sha256": "a6ed4a66cffc0c2dc013174cda3733f54bf5684dd4767b2f2a9806ec7137ba3d",
+      "upstream": "ci-library/scripts/deploy.sh",
+      "bytes": 11350
+    },
+    "assets/data/src/ticket-sync.sh": {
+      "sha256": "040e7c732c6880d3ca398c1b68bf3213b19b4ea2274b07522a31b76bbf640b3e",
+      "upstream": "ci-library/scripts/ticket-sync.sh",
+      "bytes": 5204
+    },
+    "assets/data/src/observability-push.sh": {
+      "sha256": "90f4a867b1b1ba8958615d954c93b45910b3f2cbd4d42340579b6b96dbf6526e",
+      "upstream": "ci-library/scripts/observability-push.sh",
+      "bytes": 7721
+    },
+    "assets/data/src/run-gate.groovy": {
+      "sha256": "59afd66d4cf50365340a9f14cbcbf276bf675acca80e77ddc7c996335b28670b",
+      "upstream": "ci-library/scripts/run-gate.groovy",
+      "bytes": 12191
+    },
+    "assets/data/src/release_stamp.py": {
+      "sha256": "7c1cf2065bb2c16de7e728b06506458ce89c31155c4a03cb763262e21acfa6fa",
+      "upstream": "ci-library/tools/release_stamp.py",
+      "bytes": 14414
+    },
+    "assets/data/src/ticket_sync.py": {
+      "sha256": "85dd5331b1aeb4124e5fdfd5b232b31b8cfce419d7cfbe1b5da7c6dfe790618d",
+      "upstream": "ci-library/tools/ticket_sync.py",
+      "bytes": 14216
+    },
+    "assets/data/src/release.json": {
+      "sha256": "1c93f91db14fa1202f3ac13dcadab0d7682f69054bb26c2586d086cbd2edff08",
+      "upstream": "ci-library/examples/release.json",
+      "bytes": 984
+    },
+    "assets/data/src/GatewaySIT.groovy": {
+      "sha256": "b2445c271069db009f8ab3e8ed6d3193ddc77628e5f4bda43667ca52c2ff6ce7",
+      "upstream": "jenkins/GatewaySIT.groovy",
+      "bytes": 7298
+    },
+    "assets/data/src/validateTicket.groovy": {
+      "sha256": "1e5c609c795900f3c7834ae79655f724aa93238a9e45736daa4f98faab34cbca",
+      "upstream": "shared-library/vars/validateTicket.groovy",
+      "bytes": 939
+    },
+    "assets/data/src/vaultCredentials.groovy": {
+      "sha256": "7fcc05b333e20adab19eafeeadf96a960b8b644f6556995b54a07cc675eb5677",
+      "upstream": "shared-library/vars/vaultCredentials.groovy",
+      "bytes": 1272
+    },
+    "assets/data/src/qualityGate.groovy": {
+      "sha256": "b0a5f8b1fa0052b4b18f5cf9e7550fb3efb0f80c9ab6ef8ccd32ea2a5da06d8b",
+      "upstream": "shared-library/vars/qualityGate.groovy",
+      "bytes": 827
+    },
+    "assets/data/src/deployPlan.groovy": {
+      "sha256": "afbcac4236893cc8160eb61924f32d8bbdcc1fa8a240fde38b0768ba9b70c891",
+      "upstream": "shared-library/vars/deployPlan.groovy",
+      "bytes": 1420
+    },
+    "assets/data/src/mergeApprove.groovy": {
+      "sha256": "dba11f4729fcb8434c23e232d372a83ddbcad4449e469190abfacc3f002a8ef3",
+      "upstream": "shared-library/vars/mergeApprove.groovy",
+      "bytes": 938
+    },
+    "assets/data/src/deployment.yaml": {
+      "sha256": "1a409c5d01ec6f67b2633518646d53b588bb156cab0705e6b68dbd8bd52dd35a",
+      "upstream": "jenkins/templates/deployment.yaml",
+      "bytes": 1639
+    },
+    "assets/data/src/GateResult.groovy": {
+      "sha256": "a73d5da8c8cd09ab9da38a4d947eaf3f8e00e6678bdb416c33d71775cd33293d",
+      "upstream": "shared-library/src/com/reference/release/GateResult.groovy",
+      "bytes": 3598
+    },
+    "assets/data/src/ReleaseRules.groovy": {
+      "sha256": "046472e30d0492a6956839df211a03056a2e86002a44bc2abecd8d5d0b79eb9c",
+      "upstream": "shared-library/src/com/reference/release/ReleaseRules.groovy",
+      "bytes": 5440
+    },
+    "assets/data/src/DeploymentPlan.groovy": {
+      "sha256": "c7578ec6083d4f97e9ea27e87a3c73acbc39f5858afce9d5c07e5f692401a1cc",
+      "upstream": "shared-library/src/com/reference/release/DeploymentPlan.groovy",
+      "bytes": 2633
+    },
+    "assets/data/fixture.json": {
+      "sha256": "1754c02b4af4547623a2a724d54c78c38b6ed45ec26535d60fade3e24845cf8f",
+      "upstream": "rules/fixture.json",
+      "bytes": 23342
+    },
+    "assets/js/release-rules.mjs": {
+      "sha256": "a9f6e333a32407ef7a73a586c1e27d10d8cdd6d2fc4d66abe8894617c972ff3d",
+      "upstream": "rules/release-rules.mjs",
+      "bytes": 12309
+    }
+  }
+}

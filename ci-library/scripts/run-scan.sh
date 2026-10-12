@@ -1,10 +1,11 @@
 #!/bin/bash
-# Orkestrator scan SonarQube berdiri sendiri
+# Standalone SonarQube scan orchestrator
 # Called from release-dashboard to trigger scan without full pipeline.
 #
-# Semua nama repo, group dan module di file ini sintetis. Konvensinya sama seperti
-# pita project ID 1001-1999 di ci-library/gateway.yml: bentuknya nyata, isinya tidak.
-# scripts/check-sanitised.sh memblokir kosakata internal yang pernah ada di sini. for up-to-date scanning.
+# Every repo, group and module name in this file is synthetic. The convention
+# matches the project ID band 1001-1999 in ci-library/gateway.yml: real shape,
+# fake contents. scripts/check-sanitised.sh blocks the internal vocabulary that
+# once lived here. for up-to-date scanning.
 #
 # Flow: clone ci-scripts → clone source repo → build (if Java) → scan → output JSON
 #
@@ -26,7 +27,7 @@
 # Output: JSON to stdout
 #   { "status": "success|failed", "results": [...], "errors": [...] }
 #
-# Semua log ke stderr, hanya hasil JSON ke stdout.
+# All logging goes to stderr, only the JSON result goes to stdout.
 
 set -euo pipefail
 
@@ -49,7 +50,7 @@ GIT_TOKEN='${VAULT_GIT_TOKEN}'
 export SONAR_HOST SONAR_TOKEN GIT_TOKEN
 
 # ─────────────────────────────────────────────────────────────
-# Git URLs per project dan scan type
+# Git URLs per project and scan type
 # ─────────────────────────────────────────────────────────────
 # Portal backend: monolith repos (portal, identity, catalog, reports-batch)
 DASHBOARD_BE_URL="git.example.internal/wholesale/portal/be"
@@ -111,7 +112,7 @@ for svc_entry in "${SVC_LIST[@]}"; do
 
     case "${SCAN_TYPE}" in
         maven|native)
-            # platform-api backend: resolve dari service-map.yml
+            # platform-api backend: resolve from service-map.yml
             GIT_URL=$(yq -r ".services.\"${MODULE}\".url" "${CI_SCRIPTS_PATH}/ci-library/config/service-map.yml" 2>/dev/null)
             if [ -z "$GIT_URL" ] || [ "$GIT_URL" = "null" ]; then
                 GIT_URL=$(yq -r ".libraries.\"${MODULE}\".url" "${CI_SCRIPTS_PATH}/ci-library/config/service-map.yml" 2>/dev/null)
@@ -193,7 +194,7 @@ for svc_entry in "${SVC_LIST[@]}"; do
             fi
             ;;
         java)
-            # Portal backend (Gradle): butuh product build lebih dulu untuk portal/identity
+            # Portal backend (Gradle): portal/identity needs the product build first
             log "Building Gradle project: ${MODULE}..."
             source "${CI_SCRIPTS_PATH}/ci-library/scripts/build-gradle.sh"
             if [ "$CATEGORY" = "portal" ] || [ "$CATEGORY" = "identity" ]; then

@@ -10,7 +10,7 @@
 set -uo pipefail
 # cd yang gagal tanpa || exit akan membuat semua pola dicari di direktori yang
 # salah, dan gerbang yang memeriksa salah direktori selalu lulus.
-cd "$(dirname "$0")/.." || { echo "check-sanitised: tidak bisa masuk root repo" >&2; exit 2; }
+cd "$(dirname "$0")/.." || { echo "check-sanitised: cannot enter the repo root" >&2; exit 2; }
 fail=0
 
 # ERE murni. (?i) bukan perluasan POSIX: perilakunya beda antara BSD grep di
@@ -51,11 +51,11 @@ scan() {
   [ "${3:-}" = "-i" ] && extra+=("-i")
   hits=$(grep -rnEI "${extra[@]}" --exclude-dir=.git --exclude-dir=_raw --exclude=check-sanitised.sh "$regex" . || true)
   if [ -n "$hits" ]; then
-    echo "::error::$label ditemukan"
+    echo "::error::$label found"
     printf '%s\n' "$hits" | head -5
     fail=1
   else
-    echo "ok: $label bersih"
+    echo "ok: $label clean"
   fi
 }
 
@@ -95,15 +95,15 @@ token = "aB3dE5fG7hI9jK1lM3nO"
 glpat-AbCdEfGhIjKlMnOpQrSt
 host: gitlab.internal.corp
 BAD
-  for probe in "pemetaan nama ke ID:$P_ID_MAP" \
-               "ID project telanjang:$P_PROJID" \
+  for probe in "service name mapped to an ID:$P_ID_MAP" \
+               "bare project ID:$P_PROJID" \
                "Bearer/Basic literal:$P_BEARER" \
-               "kredensial literal:$P_KRED" "glpat / PAT:$P_PAT" "hostname internal:$P_HOSTNAME"; do
+               "literal credential:$P_KRED" "glpat / PAT:$P_PAT" "internal hostname:$P_HOSTNAME"; do
     label=${probe%%:*}; regex=${probe#*:}
     if grep -qiE "$regex" "$dir/sample"; then
-      echo "  ok   tangkap: $label"
+      echo "  ok   caught: $label"
     else
-      echo "  MATI: $label tidak menangkap contoh bocoran"
+      echo "  DEAD: $label did not catch the leak sample"
       rc=1
     fi
   done
@@ -112,9 +112,9 @@ BAD
   badv=$(printf "  - project: 'team/private-gateway'\n" | strip | grep -vE "$P_PROJ_ALLOW" || true)
   goodv=$(printf "  - project: 'platform/pipeline-gateway'\n" | strip | grep -vE "$P_PROJ_ALLOW" || true)
   if [ -n "$badv" ] && [ -z "$goodv" ]; then
-    echo "  ok   nilai project: di luar allow-list tertangkap, yang sah lolos"
+    echo "  ok   a project: value outside the allow-list is caught, the allowed one gets through"
   else
-    echo "  MATI: pemeriksaan allow-list project: tidak bekerja (bad='$badv' good='$goodv')"
+    echo "  DEAD: the project: allow-list check is not working (bad='$badv' good='$goodv')"
     rc=1
   fi
 
@@ -125,36 +125,36 @@ BAD
   over_pjid=$(grep -oE "$P_PROJID" "$dir/clean" | grep -vE "$P_PROJID_SYNTH" || true)
   over_proj=$(grep -oE "project: *'[^']+'" "$dir/clean" | sed -E "s/project: *'//; s/'$//" | grep -vE "$P_PROJ_ALLOW" || true)
   if [ -n "$over_map$over_pjid$over_proj" ]; then
-    echo "  TERLALU LAPAR: contoh sintetis ikut ditandai ($over_map$over_pjid$over_proj)"
+    echo "  TOO EAGER: a synthetic sample got flagged ($over_map$over_pjid$over_proj)"
     rc=1
   else
-    echo "  ok   contoh sintetis (api(1001), rules 1001, project sah) tidak ditandai"
+    echo "  ok   synthetic samples (api(1001), rules 1001, an allowed project) were not flagged"
   fi
 
   # pita sintetis: polanya harus tetap mengenali bentuknya, baru band-filter
   # melepaskannya. Kalau keduanya tidak bekerja, yang lolos bukan tanda aman.
   if grep -qE "$P_ID_MAP" "$dir/clean" && [ -z "$over_map" ]; then
-    echo "  ok   ID sintetis dikenali polanya lalu dilepas band-filter"
+    echo "  ok   the synthetic ID is matched by the pattern, then released by the band filter"
   else
-    echo "  MATI: band-filter ID sintetis tidak bekerja"
+    echo "  DEAD: the synthetic ID band filter is not working"
     rc=1
   fi
   if grep -qE "$P_PROJID" "$dir/clean" && [ -z "$over_pjid" ]; then
-    echo "  ok   ID project sintetis di baris rules dikenali lalu dilepas band-filter"
+    echo "  ok   a synthetic project ID on a rules line is matched, then released by the band filter"
   else
-    echo "  MATI: band-filter ID project tidak bekerja"
+    echo "  DEAD: the project ID band filter is not working"
     rc=1
   fi
 
   # Band-filter IP diuji dua arah juga: alamat internal bentuk nyata harus tersisa,
   # rentang sintetis dan loopback harus dilepas.
-  printf 'svc 10.20.4.7 dan 127.0.0.1 dan 172.16.9.4\n' > "$dir/ips"
+  printf 'svc 10.20.4.7 and 127.0.0.1 and 172.16.9.4\n' > "$dir/ips"
   over_ip=$(grep -oE "$P_IP" "$dir/ips" | sed -E 's/^[^0-9]*//' | tr -d ' :' | grep -vE "$P_IP_SYNTH" || true)
   hit_ip=$(grep -cE "$P_IP" "$dir/ips" || true)
   if [ "$hit_ip" != "0" ] && [ "$over_ip" = "172.16.9.4" ]; then
-    echo "  ok   band-filter IP melepas 10.20.x dan loopback, menahan sisanya"
+    echo "  ok   the IP band filter releases 10.20.x and loopback, and holds the rest"
   else
-    echo "  MATI: band-filter IP tidak bekerja (hits=$hit_ip tersisa='$over_ip')"
+    echo "  DEAD: the IP band filter is not working (hits=$hit_ip left='$over_ip')"
     rc=1
   fi
   return $rc
@@ -165,24 +165,24 @@ if [ "${1:-}" = "--selftest" ]; then
   exit $?
 fi
 
-scan "hostname internal"     "$P_HOSTNAME"
+scan "internal hostname"     "$P_HOSTNAME"
 left=$(ip_hits || true)
-if [ -n "$left" ]; then echo "::error::IP non-sintetis ditemukan"; printf '%s\n' "$left" | head -5; fail=1
-else echo "ok: IP, hanya rentang sintetis 10.20.x"; fi
-scan "kredensial literal"    "$P_KRED"
+if [ -n "$left" ]; then echo "::error::a non-synthetic IP was found"; printf '%s\n' "$left" | head -5; fail=1
+else echo "ok: IP, only the synthetic 10.20.x range"; fi
+scan "literal credential"    "$P_KRED"
 scan "Bearer/Basic literal"  "$P_BEARER"
 
 scan "glpat / PAT"           "$P_PAT"
 idl=$(id_map_hits || true)
-if [ -n "$idl" ]; then echo "::error::pemetaan nama service ke project ID nyata ditemukan"; printf '%s\n' "$idl" | head -8; fail=1
-else echo "ok: pemetaan nama ke project ID, hanya pita sintetis 1000-1999"; fi
+if [ -n "$idl" ]; then echo "::error::a service name mapped to a real project ID was found"; printf '%s\n' "$idl" | head -8; fail=1
+else echo "ok: name to project ID mapping, only the synthetic 1000-1999 band"; fi
 # nilai project: apa pun selain yang diizinkan berarti jalur internal ikut tayang
 pj_bad=$(grep -rhoE --exclude-dir=.git --exclude-dir=_raw --exclude=check-sanitised.sh \
   "project: *'[^']+'|project: *\"[a-z0-9._/-]+\"" . 2>/dev/null \
   | sed -E "s/project: *['\"]([^'\"]+)['\"]/\1/" | sort -u | grep -vE "$P_PROJ_ALLOW" || true)
-if [ -n "$pj_bad" ]; then echo "::error::nilai project: di luar allow-list"; printf '%s\n' "$pj_bad" | head -5; fail=1
-else echo "ok: nilai project:, hanya allow-list yang muncul"; fi
+if [ -n "$pj_bad" ]; then echo "::error::a project: value outside the allow-list"; printf '%s\n' "$pj_bad" | head -5; fail=1
+else echo "ok: project: values, only the allow-list appears"; fi
 pj=$(projid_hits || true)
-if [ -n "$pj" ]; then echo "::error::ID project nyata di baris rules ditemukan"; printf '%s\n' "$pj" | head -8; fail=1
-else echo "ok: ID project di baris rules, hanya pita sintetis 1000-1999"; fi
+if [ -n "$pj" ]; then echo "::error::a real project ID was found on a rules line"; printf '%s\n' "$pj" | head -8; fail=1
+else echo "ok: project IDs on rules lines, only the synthetic 1000-1999 band"; fi
 exit $fail

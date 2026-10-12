@@ -90,7 +90,7 @@ python3 ci-library/tools/ticket_sync.py --selftest
 bash ci-library/examples/replay.sh          # writes the transcript, then checks it
 bash scripts/check-sanitised.sh --selftest  # a gate that cannot fail is not a gate
 bash scripts/check-sanitised.sh
-node rules/run-fixture.mjs                  # 31 golden cases, JS against Groovy
+node rules/run-fixture.mjs                  # 30 golden cases + the hash probe
 ```
 
 The selftests need no network and no runner: `ticket_sync.py` starts a real HTTP

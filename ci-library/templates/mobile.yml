@@ -1,11 +1,11 @@
-# Template pipeline untuk aplikasi mobile: android (apk) dan ios (ipa).
+# Pipeline template for mobile apps: android (apk) and ios (ipa).
 #
-# Mobile tidak lewat registry internal dan tidak punya environment server. Yang
-# di-deploy adalah sebuah berkas ke store pihak ketiga, dan store tidak mengenal
-# rollback: begitu sebuah build diterima pengguna, ia tinggal di sana. Karena itu
-# file ini satu-satunya template yang tanda tangannya diminta SEBELUM artifact
-# dianggap ada, dan satu-satunya yang stage terakhirnya bukan deploy melainkan
-# upload ke jalur distribusi yang bisa ditarik kembali (internal testing track).
+# Mobile does not go through the internal registry and has no server environment.
+# A deploy here means handing one file to a third-party store, and a store knows no
+# rollback: once users accept a build, it stays there. That is why this file is the
+# only template that requires a signature BEFORE the artifact counts as existing,
+# and the only one whose last stage is not a deploy but an upload to a distribution
+# channel that can still be pulled back (the internal testing track).
 
 image: eclipse-temurin:17-jdk
 
@@ -66,9 +66,9 @@ test:unit:
 
 scan:secrets-in-bundle:
   stage: scan
-  # Kunci API yang ikut terkompilasi ke dalam bundle tidak bisa dicabut setelah
-  # aplikasi sampai ke perangkat pengguna. Scan source saja tidak cukup: yang
-  # harus dibaca adalah artefak akhirnya.
+  # An API key compiled into the bundle cannot be revoked once the app reaches a
+  # user's device. Scanning the source is not enough: the scan has to read the
+  # final artifact.
   needs:
     - job: build:apk
       artifacts: true
@@ -109,8 +109,8 @@ sign:apk:
       artifacts: true
   tags: [android]
   script:
-    # Kunci diambil sebagai lease berumur pendek dari Vault, dipakai, lalu
-    # dicabut di after_script. File signing.properties tidak pernah commit.
+    # The job takes the key as a short-lived lease from Vault, uses it, and
+    # revokes it in after_script. The repo never commits signing.properties.
     - bash ci-library/scripts/setup-vault-jwt.sh issue --for keystore
     - bash ci-library/scripts/publish-artifact.sh sign
   after_script:
@@ -124,8 +124,8 @@ distribute:internal-track:
   needs:
     - job: sign:apk
       artifacts: true
-  # Manual: naik ke track internal adalah keputusan orang, dan jejaknya harus
-  # bisa ditunjuk ke siapa yang menekan tombolnya.
+  # Manual: a build moving to the internal track is a human decision, and the trail
+  # has to name who pressed the button.
   when: manual
   allow_failure: false
   script:

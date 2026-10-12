@@ -51,14 +51,14 @@ jobs:
           try:
               import yaml
           except ImportError:
-              sys.exit("pyyaml tidak tersedia di runner")
+              sys.exit("pyyaml is not available on this runner")
           files = [f for pat in ("**/*.yml", "**/*.yaml") for f in glob.glob(pat, recursive=True) if "/.git/" not in f]
           for f in files:
               with open(f) as fh:
                   # deployment.yaml multi-dokumen: safe_load_all, bukan safe_load
                   list(yaml.safe_load_all(fh))
               print("parsed:", f)
-          assert files, "tidak ada YAML untuk diperiksa"
+          assert files, "no YAML found to check"
           PY
       - name: every local include target exists
         run: |
@@ -78,7 +78,7 @@ jobs:
                       if not os.path.exists(target):
                           missing.append(f"{f} -> {target}")
           for m in missing:
-              print("::error::include tidak menunjuk ke berkas apa pun:", m)
+              print("::error::include does not point at any file:", m)
           sys.exit(1 if missing else 0)
           PY
       - name: shellcheck - errors only (blocking)
@@ -96,7 +96,7 @@ jobs:
         run: |
           mapfile -t files < <(find . -name '*.sh' -not -path './.git/*')
           shellcheck -x --severity=warning "${files[@]}" \
-            || echo "::notice::shellcheck menemukan warning - lihat laporan, tidak memblokir"
+            || echo "::notice::shellcheck found warnings - see the report, this does not block"
 
   sharedlibrary:
     name: Shared library compiles and its rules pass

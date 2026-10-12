@@ -1,30 +1,30 @@
 # Pipeline Router
 #
-# File ini di-include oleh .gitlab-ci.yml di SEMUA repo developer.
-# Routing berdasarkan CI_PROJECT_ID ke template pipeline yang sesuai.
+# This file is included by .gitlab-ci.yml in EVERY developer repository.
+# Routing is by CI_PROJECT_ID, which sends each project to the right template.
 #
-# .gitlab-ci.yml di repo developer cukup berisi:
+# A developer repository only needs this in its .gitlab-ci.yml:
 #   include:
 #     - project: 'platform/pipeline-gateway'
 #       ref: main
 #       file: '/ci-library/gateway.yml'
 #
-# Kalau ada perubahan nama template, cukup ubah file ini saja.
-# Tidak perlu mengubah .gitlab-ci.yml di 40-an repo developer.
+# A template rename is a one-line change in this file. The .gitlab-ci.yml in
+# about forty developer repositories does not need to move.
 #
-# ── Tentang data di file ini ────────────────────────────────────────────────
-# Nama service dan project ID di bawah adalah SINTETIS, bukan inventaris sistem
-# tempat pipeline ini originally berjalan. Konvensinya sama seperti rentang IP
-# 10.20.x di repo ini: project ID sintetis selalu berada di pita 1001-1999.
-# scripts/check-sanitised.sh memblokir ID di luar pita itu, termasuk yang muncul
-# telanjang di baris `if:`, supaya pembersihan yang hanya mengedit komentar tidak
-# bisa lolos.
+# ── About the data in this file ─────────────────────────────────────────────
+# The service names and project IDs below are SYNTHETIC. They are not an
+# inventory of the systems where these pipelines originally ran. The convention
+# matches the 10.20.x IP range in this repo: a synthetic project ID always sits
+# in the 1001-1999 band. scripts/check-sanitised.sh blocks IDs outside that
+# band, including ones written bare on an `if:` line, so a sanitising pass that
+# only edits comments cannot slip through.
 #
-# Bentuk aslinya punya satu blok `rules:` per domain, dan sebagian besar barisnya
-# adalah komentar penanda domain. Yang dipotong di sini hanya jumlahnya.
+# The original had one `rules:` block per domain, and most of its lines were domain
+# marker comments. This file cuts nothing but the number of entries listed.
 
 include:
-  # ── backend: layanan Java, artifact jar, tier 1 ───────────────────────────
+  # ── backend: Java services, jar artifact, tier 1 ──────────────────────────
   - local: '/ci-library/templates/backend.yml'
     rules:
       - if: $CI_PROJECT_ID == "1001"   # identity
@@ -36,40 +36,40 @@ include:
       - if: $CI_PROJECT_ID == "1007"   # push-relay
       - if: $CI_PROJECT_ID == "1008"   # scheduler
 
-  # ── platform: konfigurasi dan penemuan service, juga jar ──────────────────
+  # ── platform: service configuration and discovery, also jar ───────────────
   - local: '/ci-library/templates/platform.yml'
     rules:
       - if: $CI_PROJECT_ID == "1010"   # config
       - if: $CI_PROJECT_ID == "1011"   # discovery
       - if: $CI_PROJECT_ID == "1012"   # edge
 
-  # ── web: frontend, artifact web, tier 3 ───────────────────────────────────
-  # Naik satu tier karena sebuah deploy web mengikuti backend, bukan mendahuluinya.
+  # ── web: frontend, web artifact, tier 3 ───────────────────────────────────
+  # One tier higher: a web deploy follows the backend, it does not lead it.
   - local: '/ci-library/templates/web.yml'
     rules:
       - if: $CI_PROJECT_ID == "1020"   # portal
       - if: $CI_PROJECT_ID == "1021"   # back-office
       - if: $CI_PROJECT_ID == "1022"   # static-assets
 
-  # ── mobile: apk dan ipa, tidak lewat registry internal ────────────────────
+  # ── mobile: apk and ipa, no internal registry ─────────────────────────────
   - local: '/ci-library/templates/mobile.yml'
     rules:
       - if: $CI_PROJECT_ID == "1030"   # android
       - if: $CI_PROJECT_ID == "1031"   # ios
 
-  # ── libraries: dibangun, tidak di-deploy ──────────────────────────────────
-  # Artifact-nya maven, tapi tidak punya environment tujuan. Aturan promotion
-  # menolak mempromosikan project di blok ini, dan itu disengaja.
+  # ── libraries: built, not deployed ────────────────────────────────────────
+  # The artifact is maven, but there is no target environment. The promotion rules
+  # refuse to promote the projects in this block, and that is intentional.
   - local: '/ci-library/templates/library.yml'
     rules:
       - if: $CI_PROJECT_ID == "1040"   # entities
       - if: $CI_PROJECT_ID == "1041"   # common
       - if: $CI_PROJECT_ID == "1042"   # messaging-lib
 
-  # ── yang TIDAK masuk gateway ──────────────────────────────────────────────
-  # Repo pipeline itu sendiri. Ia punya pipeline-nya sendiri, dan membiarkannya
-  # ikut ter-include membuat gateway mengubah dirinya sendiri di tengah jalan.
+  # ── what does NOT go through the gateway ──────────────────────────────────
+  # The pipeline repo itself. It runs its own pipeline, and letting it include this
+  # file would have the gateway rewriting itself mid-run.
   #
-  # Layanan yang masih build di Jenkins lama juga tidak ada di sini. Mereka
-  # dipromosikan ke gateway satu per satu, dan kontrak stage-nya yang lebih dulu
-  # disamakan - bukan file-nya.
+  # The gateway also leaves out the services still building on the old Jenkins.
+  # They move in one at a time, and each move aligns the stage contract first,
+  # not the file.

@@ -1,11 +1,10 @@
-# Template pipeline untuk layer platform: config server, service discovery, edge.
+# Pipeline template for the platform layer: config server, service discovery, edge.
 #
-# Yang membedakan bukan runtime-nya, tapi apa yang dianggap rusak. Untuk layanan
-# bisnis, kegagalan berarti satu tim terganggu. Untuk layer platform, kegagalan
-# berarti TIDAK ADA layanan yang bisa mencari satu sama lain. Karena itu file ini
-# punya satu hal yang tidak dimiliki template lain: langkah rollback yang dijalankan
-# otomatis oleh job deploy itu sendiri, bukan oleh manusia yang membaca log jam dua
-# pagi.
+# What sets this apart is not the runtime but what counts as broken. For a business
+# service, a failure means one team is slowed down. For the platform layer, a
+# failure means NO service can find any other service. That is why this file has
+# one thing no other template has: a rollback step that the deploy job runs
+# automatically, instead of a human reading logs at two in the morning.
 
 image: maven:3.9-eclipse-temurin-17
 
@@ -80,9 +79,9 @@ test:unit:
 
 test:config-contract:
   stage: test
-  # Kontrak config diverifikasi terhadap skema yang dipakai 40-an repo lain.
-  # Perubahan satu kunci di config server bisa membuat layanan orang lain
-  # gagal start, dan itu harus ketahuan di sini, bukan di namespace produksi.
+  # CI checks the config contract against the schema that around 40 other repos
+  # use. One changed key in the config server can stop another team's service from
+  # starting, and that has to surface here, not in a production namespace.
   needs: []
   script:
     - python3 ci-library/tools/release_stamp.py --check-config config/schema.json
@@ -134,8 +133,8 @@ deploy:sit:
     - bash ci-library/scripts/deploy.sh wait --env sit --timeout 240 --auto-rollback
   environment:
     name: sit
-  # Rollback otomatis hanya untuk layer platform. Untuk layanan bisnis ia akan
-  # menyembunyikan penyebab kegagalan dari tim yang harus memperbaikinya.
+  # Auto-rollback is for the platform layer only. On a business service it would
+  # hide the cause of the failure from the team that has to fix it.
   after_script:
     - bash ci-library/scripts/observability-push.sh deploy || true
 

@@ -1,27 +1,29 @@
-# Template pipeline untuk layanan backend (Java, artifact jar, tier 1).
+# Pipeline template for backend services (Java, jar artifact, tier 1).
 #
-# Di-include oleh ci-library/gateway.yml lewat routing CI_PROJECT_ID. Developer
-# tidak mengubah file ini; yang diubah developer hanya release.json di repo-nya.
+# Included by ci-library/gateway.yml through CI_PROJECT_ID routing. Developers do
+# not edit this file; the only file a developer edits is release.json in their own
+# repo.
 #
-# ── Cara baca file ini ──────────────────────────────────────────────────────
-# Urutan stage bukan hiasan. Setiap job menyatakan kebutuhannya sendiri lewat
-# `needs:`, jadi GitLab menjalankan apa yang BISA jalan, bukan apa yang datang
-# duluan di daftar. Itu sebabnya `scan:sbom-index` tidak menunggu `quality`,
-# sementara `deploy-sit` menunggu dua hal sekaligus: verdict gate dan image digest.
+# ── How to read this file ───────────────────────────────────────────────────
+# The stage order is not decoration. Each job declares what it needs through
+# `needs:`, so GitLab runs whatever CAN run, not whatever appears first in the
+# list. That is why `scan:sbom-index` does not wait for `quality`, while
+# `deploy-sit` waits for two things at once: the gate verdict and the image digest.
 #
-# Semua job memanggil script di ci-library/scripts atau tool di ci-library/tools.
-# Tidak ada logika yang ditulis inline dua kali. Kalau sebuah perintah muncul di
-# dua job, perintah itu punya tempat sendiri di repo ini.
+# Every job calls a script in ci-library/scripts or a tool in ci-library/tools. No
+# logic is written inline twice. If a command shows up in two jobs, that command
+# gets its own home in this repo.
 #
-# ── Tentang data di file ini ────────────────────────────────────────────────
-# Nama project, namespace, URL dan ID di bawah sintetis. Konvensinya sama seperti
-# pita project ID 1001-1999 di gateway.yml dan rentang IP 10.20.x di tempat lain:
-# bentuknya nyata, isinya tidak. scripts/check-sanitised.sh menjaganya begitu.
+# ── About the data in this file ─────────────────────────────────────────────
+# The project names, namespaces, URLs and IDs below are synthetic. The convention
+# matches the project ID band 1001-1999 in gateway.yml and the 10.20.x IP ranges
+# elsewhere: the shape is real, the content is not. scripts/check-sanitised.sh
+# keeps it that way.
 
 image: maven:3.9-eclipse-temurin-17
 
 variables:
-  GIT_DEPTH: "0"                    # version stamp butuh tag, jadi tidak boleh shallow
+  GIT_DEPTH: "0"                    # the version stamp needs tags, so no shallow clone
   GIT_STRATEGY: fetch
   MAVEN_CLI_OPTS: "--batch-mode --errors --show-version --no-transfer-progress"
   MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
@@ -29,9 +31,10 @@ variables:
   VAULT_ADDR: "https://vault.example.internal"
   TIER: "1"
 
-# Cache bersama untuk semua job build/test. Key-nya SHA dari pom.xml, bukan
-# $CI_COMMIT_REF_SLUG: branch berbeda dengan dependency yang sama harus saling
-# memakai, dan branch yang dependency-nya berubah tidak boleh ikut cache basi.
+# Shared cache for all build and test jobs. The key is the SHA of pom.xml, not
+# $CI_COMMIT_REF_SLUG: branches with the same dependencies must be able to reuse
+# each other's cache, and a branch whose dependencies changed must not inherit a
+# stale one.
 cache:
   key:
     files:
@@ -98,8 +101,8 @@ build:docker-image:
     entrypoint: [""]
   script:
     - bash ci-library/scripts/publish-artifact.sh push
-  # Digest dibaca dari file yang ditulis Kaniko, bukan dari output `docker push`,
-  # supaya job berikutnya punya identitas image yang tidak bisa salah salin.
+  # The digest comes from the file Kaniko wrote, not from `docker push` output, so
+  # the next job gets an image identity that cannot be copied wrong.
   artifacts:
     paths:
       - image-digest.txt
@@ -131,8 +134,8 @@ test:contract:
       junit: target/cucumber-reports/*.xml
 
 # ── scan ─────────────────────────────────────────────────────────────────────
-# Ketiganya paralel dan tidak saling menunggu. Yang menunggu hasil ketiganya
-# adalah gate, bukan satu sama lain.
+# The three run in parallel and never wait on each other. The gate waits for all
+# three results; the scans do not.
 
 scan:sast-semgrep:
   stage: scan
@@ -176,8 +179,8 @@ scan:container-trivy:
 
 scan:sbom-index:
   stage: scan
-  # Butuh jar DAN image, jadi ia menunggu dua cabang sekaligus - tapi tidak
-  # menunggu unit test. Menunggu semuanya hanya menunda feedback.
+  # It needs the jar AND the image, so it waits for two branches at once, but it
+  # does not wait for the unit tests. Waiting for everything only delays feedback.
   needs:
     - job: build:maven-package
       artifacts: true
@@ -205,16 +208,16 @@ quality:sonarqube-checks:
   image: sonarsource/sonar-scanner-cli:10
   script:
     - sonar-scanner -Dsonar.host.url="$SONAR_HOST" -Dsonar.login="$SONAR_TOKEN"
-    - sleep 20                       # menunggu webhook quality gate sampai
+    - sleep 20                       # wait for the quality gate webhook to arrive
     - bash ci-library/scripts/run-scan.sh quality-gate
   artifacts:
     paths:
       - sonar-gate.json
 
 # ── gate ─────────────────────────────────────────────────────────────────────
-# Satu-satunya tempat keputusan diambil. Job ini tidak memanggil API environment
-# apa pun: ia membaca artefak, membandingkannya dengan ambang yang sama dengan
-# yang dipakai Jenkins, lalu menulis verdict.
+# The only place where the pipeline makes its decision. This job calls no
+# environment API: it reads the artifacts, compares them with the same thresholds
+# Jenkins uses, then writes the verdict.
 
 gate:release-rules:
   stage: gate
@@ -243,8 +246,8 @@ gate:release-rules:
 
 gate:ticket-sync:
   stage: gate
-  # `when: always` di sini yang membuat tiket tetap bergerak saat gate menolak.
-  # Versi tanpa baris itu hanya meninggalkan jejak pada pipeline yang hijau.
+  # The `when: always` here is what keeps the ticket moving when the gate refuses.
+  # Without that line, the sync only leaves a trace on pipelines that went green.
   needs:
     - job: gate:release-rules
       artifacts: true
@@ -259,7 +262,7 @@ gate:ticket-sync:
 
 deploy:sit:
   stage: deploy
-  resource_group: sit            # satu deploy SIT pada satu waktu, tanpa pengecualian
+  resource_group: sit            # one SIT deploy at a time, no exceptions
   needs:
     - job: gate:release-rules
       artifacts: true
@@ -275,8 +278,9 @@ deploy:sit:
   when: on_success
 
 # ── promote ──────────────────────────────────────────────────────────────────
-# Manual di level GitLab, dan ditolak oleh aturan promotion kalau ticket-nya tidak
-# membawa rantai approval yang lengkap. Tombol ada di sini; haknya ada di gate.
+# Manual at the GitLab level, and the promotion rules refuse it when the ticket
+# does not carry a complete approval chain. The button lives here; the right to
+# press it lives in the gate.
 
 promote:uat:
   stage: promote
@@ -312,8 +316,8 @@ feedback:observability:
   needs:
     - job: gate:release-rules
       artifacts: true
-  # Selalu jalan, termasuk saat pipeline merah: angka kegagalan justru yang
-  # paling dibutuhkan dashboard.
+  # Always runs, including when the pipeline is red: the failure numbers are what
+  # the dashboard needs most.
   when: always
   script:
     - bash ci-library/scripts/observability-push.sh pipeline

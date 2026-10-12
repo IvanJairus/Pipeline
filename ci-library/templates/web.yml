@@ -1,10 +1,11 @@
-# Template pipeline untuk frontend web (artifact image nginx, tier 3).
+# Pipeline template for web frontends (nginx image artifact, tier 3).
 #
-# Bedanya dengan backend.yml bukan cuma runtime: urutan deploy-nya berbeda
-# makna. Sebuah release web mengikuti backend, bukan mendahuluinya, karena
-# bundle JS yang memanggil endpoint yang belum ada adalah error 500 di layar
-# pengguna. Karena itu tier web naik satu tingkat di DeploymentPlan dan gate
-# promotion menolak wave prod yang menaruh web sebelum backend-nya naik.
+# The difference from backend.yml is not only the runtime: the deploy order carries
+# a different meaning here. A web release follows its backend instead of getting
+# ahead of it, because a JS bundle that calls an endpoint which does not exist yet
+# is a 500 error on the user's screen. That is why the web tier moves up one level
+# in DeploymentPlan and why the promotion gate refuses a prod wave that puts web
+# before its backend has rolled out.
 
 image: node:20-alpine
 
@@ -87,9 +88,8 @@ test:unit:
 
 test:a11y:
   stage: test
-  # Rantai aksesibilitas dijalankan di CI karena setelah rilis ia tidak akan
-  # dijalankan siapa pun. Ambangnya dipakai bersama dengan gate, bukan angka
-  # yang diketik ulang di sini.
+  # CI runs the accessibility chain because nobody runs it after release. The
+  # thresholds are shared with the gate, not retyped here.
   needs:
     - job: build:bundle
       artifacts: true
@@ -199,8 +199,8 @@ promote:prod:
     - job: promote:uat
     - job: gate:release-rules
       artifacts: true
-  # Web tidak pernah naik sendirian: wave plan menolak tier 3 di depan tier 1
-  # yang belum ada di environment tujuan.
+  # Web never rolls out alone: the wave plan refuses tier 3 ahead of a tier 1 that
+  # is not in the target environment yet.
   script:
     - bash ci-library/scripts/deploy.sh promote --from uat --to prod --require-backend
   environment:

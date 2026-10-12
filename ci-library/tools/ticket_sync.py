@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""Menempelkan verdict gate ke tiket, dan (kalau dipasang) menransisi tiket-nya.
+"""Attach the gate verdict to the ticket, and (when configured) transition it.
 
-Dipanggil oleh ci-library/scripts/ticket-sync.sh, yang dipanggil oleh job
-`gate:ticket-sync` di semua template.
+Called by ci-library/scripts/ticket-sync.sh, which is called by the
+`gate:ticket-sync` job in every template.
 
-Tiga keputusan yang bikin file ini layak dipakai, bukan cuma ada:
+Three decisions make this file worth using, not merely present:
 
-1. Idempoten. Satu pipeline bisa di-retry, dan tiket yang dapat dua komentar
-   identik membuat orang berhenti membaca komentar pipeline. Kuncinya hash dari
-   (pipeline, verdict); server menyimpan apa yang sudah pernah kita kirim.
-2. Gagal itu bukan alasan untuk menahan verdict. Kalau tiket tidak bisa dicapai,
-   verdict tetap ditulis dan exit code-nya nol: gate yang sudah memutuskan
-   jangan sampai berubah jadi merah karena notifikasi.
-3. Kredensial tidak pernah lewat argv. argv terbaca di `ps` dan masuk ke log
-   runner. Semuanya dari environment, dan yang ditulis ke log hanya namanya.
+1. Idempotent. One pipeline can be retried, and a ticket that receives two
+   identical comments teaches people to stop reading pipeline comments. The key
+   is a hash of (pipeline, verdict); the server stores what we already sent.
+2. A failure is not a reason to withhold the verdict. If the ticket cannot be
+   reached, the verdict is still written and the exit code is zero: a gate
+   that has already decided must not turn red because of a notification.
+3. Credentials never travel through argv. argv is readable in `ps` and lands in
+   runner logs. Everything comes from the environment, and only the variable
+   names are written to the log.
 
-Hanya stdlib. --selftest menjalankan server HTTP sungguhan di 127.0.0.1, jadi
-jalur retry diuji terhadap socket, bukan terhadap mock yang setuju-setuju saja.
+Stdlib only. --selftest runs a real HTTP server on 127.0.0.1, so the retry path
+is tested against a socket, not against a mock that agrees with everything.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# ── log (bentuk yang sama dengan lib/log.sh) ────────────────────────────────
+# ── log (the same shape as lib/log.sh) ───────────────────────────────────────
 
 SCOPE = os.environ.get("CI_JOB_NAME") or "ticket-sync"
 
@@ -54,13 +55,13 @@ def log(level: str, message: str) -> None:
     print(f"{_stamp()} {level} {SCOPE} {message}", file=sys.stderr)
 
 
-# ── bentuk permintaan ───────────────────────────────────────────────────────
+# ── request shape ────────────────────────────────────────────────────────────
 
 def verdict_note(verdict: dict, run: dict) -> str:
-    """Satu komentar, dibaca manusia. Bukan dump JSON.
+    """One comment, written for a human to read. Not a JSON dump.
 
-    Yang ditanya orang di tiket adalah: apa yang menahan, dan apa yang harus
-    saya lakukan. Dua hal itu yang ada di depan; sisanya di blok detail.
+    What people ask on the ticket is: what is holding this, and what should I do
+    next. Those two answers go up front; the rest sits in the detail block.
     """
     head = "PASS" if verdict.get("passed") else "BLOCKED"
     lines = [
@@ -72,13 +73,13 @@ def verdict_note(verdict: dict, run: dict) -> str:
     ]
     failures = verdict.get("failures") or []
     if failures:
-        lines += ["", "yang menahan:"] + [f"- {f}" for f in failures]
+        lines += ["", "what is holding this back:"] + [f"- {f}" for f in failures]
     warnings = verdict.get("warnings") or []
     if warnings:
-        lines += ["", "yang diterima dengan catatan:"] + [f"- {w}" for w in warnings]
+        lines += ["", "what was accepted with a note:"] + [f"- {w}" for w in warnings]
     plan = verdict.get("plan") or []
     if plan:
-        lines += ["", "urutan deploy:"] + [
+        lines += ["", "deploy order:"] + [
             f"- {p.get('name') or p.get('id')} (tier {p.get('tier')}) {p.get('action')}" for p in plan
         ]
     lines += ["", f"idempotency: {run['key']}"]
@@ -121,13 +122,13 @@ class MissingCredential(Exception):
     pass
 
 
-# ── kirim ───────────────────────────────────────────────────────────────────
+# ── send ─────────────────────────────────────────────────────────────────────
 
 def send(target: Target, payload: dict, timeout: float = 15.0, attempts: int = 4, sleep=time.sleep) -> tuple[bool, str]:
-    """POST dengan backoff. Kembali (ok, alasan).
+    """POST with backoff. Returns (ok, reason).
 
-    Yang di-retry hanya 5xx dan kesalahan jaringan. 4xx adalah "permintaanmu
-    salah" - mengulanginya empat kali hanya menunda orang yang baca log.
+    Only 5xx and network errors are retried. A 4xx means "your request is
+    wrong": repeating it four times only delays the person reading the log.
     """
     data = json.dumps(payload).encode()
     last = "not attempted"
@@ -156,8 +157,8 @@ def send(target: Target, payload: dict, timeout: float = 15.0, attempts: int = 4
 
 def load_verdict(path: str) -> dict:
     if not os.path.exists(path):
-        # Verdict yang hilang tidak boleh berubah jadi "lolos" di tiket.
-        return {"passed": False, "summary": "gate-verdict.json tidak dibaca; release ditahan sampai itu jelas", "failures": ["verdict missing"], "warnings": [], "plan": []}
+        # A missing verdict must not turn into "passed" on the ticket.
+        return {"passed": False, "summary": "gate-verdict.json was not read; the release stays held until that is clear", "failures": ["verdict missing"], "warnings": [], "plan": []}
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -165,7 +166,7 @@ def load_verdict(path: str) -> dict:
 # ── selftest ────────────────────────────────────────────────────────────────
 
 class _Recorder(BaseHTTPRequestHandler):
-    """Server sungguhan di 127.0.0.1. Yang dicatat: jumlah permintaan dan body-nya."""
+    """A real server on 127.0.0.1. What it records: the request count and the bodies."""
 
     hits: list = []
     codes: list = []
@@ -191,21 +192,21 @@ def selftest() -> int:
             fails.append(name)
 
     key = idempotency_key("1421", "gate passed")
-    ok(key.startswith("gate-") and len(key) == 21, "panjang kunci stabil")
-    ok(key == idempotency_key("1421", "gate passed"), "kunci deterministik")
-    ok(key != idempotency_key("1422", "gate passed"), "pipeline lain = kunci lain")
+    ok(key.startswith("gate-") and len(key) == 21, "key length is stable")
+    ok(key == idempotency_key("1421", "gate passed"), "key is deterministic")
+    ok(key != idempotency_key("1422", "gate passed"), "a different pipeline = a different key")
 
     note = verdict_note({"passed": False, "summary": "gate failed: 1 critical", "failures": ["vulnerabilities: 1 critical (allowed 0)"], "warnings": [], "plan": [
                             {"id": "1001", "name": "core-api", "tier": 1, "action": "deploy"},
                             {"id": "1020", "name": "portal", "tier": 3, "action": "deploy"}]},
                         {"project": "core-api", "version": "R1.4.3", "env": "sit", "url": "https://gitlab.example.internal/p/-/pipelines/1421", "commit": "a1b2c3d", "branch": "main", "key": key})
-    ok("[BLOCKED]" in note and "yang menahan:" in note, "verdict merah terbaca sebagai alasan")
-    ok("PASS" not in note.splitlines()[0], "baris pertama tidak bilang PASS")
-    ok("1 critical" in note, "angka dari gate ikut tertulis")
-    order = note.split("urutan deploy:")[1]
-    ok("core-api (tier 1)" in order and "portal (tier 3)" in order, "urutan deploy memakai nama dan tier hasil gate")
+    ok("[BLOCKED]" in note and "what is holding this back:" in note, "a red verdict reads as its reason")
+    ok("PASS" not in note.splitlines()[0], "the first line does not say PASS")
+    ok("1 critical" in note, "the numbers from the gate are written along")
+    order = note.split("deploy order:")[1]
+    ok("core-api (tier 1)" in order and "portal (tier 3)" in order, "the deploy order uses the names and tiers from the gate")
 
-    # Server sungguhan: 500, 500, 201 -> harus coba tiga kali dan akhirnya ok.
+    # A real server: 500, 500, 201 -> it must try three times and end ok.
     srv = HTTPServer(("127.0.0.1", 0), _Recorder)
     port = srv.server_address[1]
     t = threading.Thread(target=srv.serve_forever, daemon=True)
@@ -213,43 +214,43 @@ def selftest() -> int:
     try:
         _Recorder.hits = []
         _Recorder.codes = [500, 502, 201]
-        os.environ["TEST_TOKEN"] = "sekali-pakai"
+        os.environ["TEST_TOKEN"] = "single-use"
         tgt = Target("gitlab", f"http://127.0.0.1:{port}", "/api/v4/projects/1001/issues/471/notes", "TEST_TOKEN")
         slept: list[float] = []
-        ok(send(tgt, {"body": "x"}, sleep=slept.append)[0], "retry sampai sukses")
-        ok(len(_Recorder.hits) == 3, f"tiga percobaan, dapat {len(_Recorder.hits)}")
-        ok(len(slept) == 2 and slept[1] > slept[0], "backoff naik")
+        ok(send(tgt, {"body": "x"}, sleep=slept.append)[0], "retries until it succeeds")
+        ok(len(_Recorder.hits) == 3, f"three attempts, got {len(_Recorder.hits)}")
+        ok(len(slept) == 2 and slept[1] > slept[0], "the backoff grows")
 
-        # 404 tidak diulang: itu permintaan yang salah, bukan server yang sibuk.
+        # A 404 is not repeated: that is a wrong request, not a busy server.
         _Recorder.hits = []
         _Recorder.codes = [404]
-        ok(not send(tgt, {"body": "x"}, sleep=lambda *_: None)[0], "404 dianggap gagal")
-        ok(len(_Recorder.hits) == 1, "4xx tidak di-retry")
+        ok(not send(tgt, {"body": "x"}, sleep=lambda *_: None)[0], "a 404 counts as a failure")
+        ok(len(_Recorder.hits) == 1, "4xx is not retried")
 
-        # Tanpa kredensial: gagal cepat dengan sebab yang bisa dibaca.
+        # Without a credential: fail fast with a readable cause.
         os.environ.pop("TEST_TOKEN")
         try:
             send(tgt, {"body": "x"}, attempts=1, sleep=lambda *_: None)
-            ok(False, "kredensial hilang seharusnya melempar")
+            ok(False, "a missing credential should raise")
         except MissingCredential:
-            ok(True, "kredensial hilang dilempar")
+            ok(True, "a missing credential raised")
 
-        # Token tidak boleh ikut tertulis ke log.
-        os.environ["TEST_TOKEN"] = "jangan-cetak-ini"
+        # The token must never be written to the log.
+        os.environ["TEST_TOKEN"] = "do-not-print-this"
         _Recorder.hits = []
         _Recorder.codes = [201]
-        send(tgt, {"body": "isi"}, sleep=lambda *_: None)
-        ok(_Recorder.hits[0]["token"] == "jangan-cetak-ini", "token sampai ke server")
+        send(tgt, {"body": "content"}, sleep=lambda *_: None)
+        ok(_Recorder.hits[0]["token"] == "do-not-print-this", "the token reached the server")
     finally:
         srv.shutdown()
         srv.server_close()
 
-    missing = load_verdict("berkas-yang-tidak-ada.json")
-    ok(missing["passed"] is False and "verdict missing" in missing["failures"], "verdict hilang menahan release")
+    missing = load_verdict("file-that-does-not-exist.json")
+    ok(missing["passed"] is False and "verdict missing" in missing["failures"], "a missing verdict holds the release")
 
     for f in fails:
         print(f"ticket_sync selftest FAIL {f}", file=sys.stderr)
-    print("ticket_sync selftest: ok" if not fails else f"ticket_sync selftest: {len(fails)} kegagalan", file=sys.stderr)
+    print("ticket_sync selftest: ok" if not fails else f"ticket_sync selftest: {len(fails)} failures", file=sys.stderr)
     return 0 if not fails else 1
 
 
@@ -261,8 +262,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--project", default=os.environ.get("CI_PROJECT_NAME", "unknown"))
     ap.add_argument("--version", default=os.environ.get("RELEASE_VERSION", "unversioned"))
     ap.add_argument("--env", default=os.environ.get("CI_DEPLOY_TO", "sit"))
-    ap.add_argument("--gitlab-issue", default="", help="IID tiket di project ini")
-    ap.add_argument("--jira-issue", default="", help="contohnya FIN-471")
+    ap.add_argument("--gitlab-issue", default="", help="IID of the ticket in this project")
+    ap.add_argument("--jira-issue", default="", help="for example FIN-471")
     ap.add_argument("--to", default="")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--selftest", action="store_true")
@@ -309,9 +310,9 @@ def main(argv: list[str]) -> int:
         ok, _ = send(tgt, tgt.body(note, verdict))
         delivered += ok
     if delivered < len(targets):
-        # Sengaja tidak mengubah kode keluar. Verdict sudah ditulis oleh job
-        # sebelumnya; notifikasi yang gagal bukan alasan untuk melepaskan
-        # penahan, dan juga bukan alasan untuk menahannya lebih lama.
+        # Deliberately does not change the exit code. The verdict was already
+        # written by an earlier job; a failed notification is not a reason to
+        # release the hold, and not a reason to hold longer either.
         log("WARN", f"verdict delivered={delivered} of={len(targets)} gateUnchanged=true")
     return 0
 

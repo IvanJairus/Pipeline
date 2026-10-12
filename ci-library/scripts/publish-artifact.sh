@@ -1,26 +1,26 @@
 #!/bin/bash
-# Menaikkan artefak hasil build ke tempat ia akan diambil saat deploy.
+# Push the build artifact to the place it will be pulled from at deploy time.
 #
-# Dipakai oleh job build:docker-image (kaniko), publish:maven (library),
-# sign:apk dan distribute:internal-track (mobile). Satu file, empat bentuk
-# artefak, satu cara menjawab pertanyaan yang sama: "versi apa yang baru saja
-# naik, dan dari commit mana?"
+# Used by the build:docker-image (kaniko), publish:maven (library), sign:apk
+# and distribute:internal-track (mobile) jobs. One file, four artifact shapes,
+# one way to answer the same question: "which version just went up, and from
+# which commit?"
 #
-# Pemakaian:
-#   publish-artifact.sh push          # image, tulis image-digest.txt
-#   publish-artifact.sh maven         # jar ke registry maven
-#   publish-artifact.sh sign          # tanda tangan apk
+# Usage:
+#   publish-artifact.sh push          # image, write image-digest.txt
+#   publish-artifact.sh maven         # jar to the maven registry
+#   publish-artifact.sh sign          # apk signature
 #   publish-artifact.sh distribute --track internal
 #   publish-artifact.sh --selftest
 #
 # Environment:
-#   DRY_RUN=1        cetak perintah, jangan jalankan (dipakai selftest dan lokal)
-#   REGISTRY         tujuan image, wajib ada
+#   DRY_RUN=1        print the command, do not run it (used by selftest and locally)
+#   REGISTRY         image destination, required
 #   LOG_LEVEL        TRACE|DEBUG|INFO|WARN|ERROR (default INFO)
 #
-# Yang tidak dilakukan file ini: tidak pernah menulis tag `latest`. Sebuah image
-# tanpa digest tidak bisa dirujuk kembali oleh insiden enam bulan lalu, dan
-# `latest` adalah cara paling sopan untuk membuat deploy yang tidak bisa diulang.
+# What this file does not do: it never writes a `latest` tag. An image with no
+# digest cannot be pointed back to by an incident six months later, and
+# `latest` is the politest way to make a deploy unrepeatable.
 
 set -euo pipefail
 
@@ -43,9 +43,9 @@ run() {
   "$@"
 }
 
-# Baca satu kunci dari build-info.json tanpa memanggil jq: image runner tidak
-# selalu punya jq, dan sebuah job yang gagal karena alat bantu bukan kegagalan
-# yang ingin dijelaskan orang jam dua pagi.
+# Read one key from build-info.json without calling jq: runner images do not
+# always ship jq, and a job that fails over a missing helper tool is not the
+# failure anyone wants to explain at two in the morning.
 info_get() {
   local key="$1"
   [ -f "$BUILD_INFO" ] || { log_warn "read ${BUILD_INFO} missing treated=absent"; return 1; }
@@ -131,44 +131,44 @@ selftest() {
   tmp="$(mktemp -d)"
   cd "$tmp"
 
-  # Tanpa build-info.json: harus berhenti, bukan menebak versi.
+  # Without build-info.json: it must stop, not guess a version.
   DRY_RUN=1 REGISTRY=registry.example.internal/platform CI_PROJECT_NAME=core-api \
     bash "$SCRIPT_DIR/publish-artifact.sh" push >out.txt 2>err.txt || true
-  says err.txt "reason=no_version" "versi hilang harus menghentikan push"
+  says err.txt "reason=no_version" "a missing version must stop the push"
 
   printf '%s\n' '{"version":"R1.4.3","commit":"a1b2c3d","status":"success"}' > build-info.json
 
-  # Push dalam dry-run: ref memakai versi, tidak pernah memakai latest.
+  # Push in dry-run: the ref uses the version, never latest.
   DRY_RUN=1 REGISTRY=registry.example.internal/platform CI_PROJECT_NAME=core-api \
     bash "$SCRIPT_DIR/publish-artifact.sh" push >out.txt 2>err.txt || true
-  says err.txt "ref=registry.example.internal/platform/core-api:R1.4.3" "ref tidak memakai versi"
-  never_says err.txt ":latest" "latest tidak boleh muncul"
+  says err.txt "ref=registry.example.internal/platform/core-api:R1.4.3" "the ref does not use the version"
+  never_says err.txt ":latest" "latest must never appear"
 
-  # Digest yang salah bentuk harus tertangkap, bukan tersimpan lalu meledak di deploy.
+  # A malformed digest must be caught here, not stored and then detonating at deploy.
   printf '%s\n' 'notadigest' > image-digest.txt
   DRY_RUN=1 REGISTRY=r CI_PROJECT_NAME=core-api bash "$SCRIPT_DIR/publish-artifact.sh" push >out.txt 2>err.txt || true
-  says err.txt "reason=bad_digest" "digest rusak tidak tertangkap"
+  says err.txt "reason=bad_digest" "a malformed digest went unnoticed"
   printf '%s\n' 'sha256:6f1a2c34d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f80' > image-digest.txt
   DRY_RUN=1 REGISTRY=r CI_PROJECT_NAME=core-api bash "$SCRIPT_DIR/publish-artifact.sh" push >out.txt 2>err.txt || true
-  says err.txt "digest written" "digest sah tidak dicatat"
+  says err.txt "digest written" "a valid digest went unrecorded"
 
-  # Track produksi tidak lewat jalur ini.
+  # Production tracks do not go through this path.
   DRY_RUN=1 bash "$SCRIPT_DIR/publish-artifact.sh" distribute production >out.txt 2>err.txt || true
-  says err.txt "reason=bad_track" "track produksi tertolak"
+  says err.txt "reason=bad_track" "production track refused"
 
-  # Bundle yang belum ditandatangani tidak boleh naik ke track mana pun.
+  # An unsigned bundle must not reach any track.
   mkdir -p app/build/outputs/apk/release
   printf 'x' > app/build/outputs/apk/release/app-release.apk
   DRY_RUN=1 bash "$SCRIPT_DIR/publish-artifact.sh" distribute internal >out.txt 2>err.txt || true
-  says err.txt "reason=unsigned" "bundle tanpa tanda tangan tertolak"
+  says err.txt "reason=unsigned" "unsigned bundle refused"
 
-  # Bentuk baris log yang dipakai semua script lain.
+  # The log line shape every other script uses.
   ( source "$SCRIPT_DIR/lib/log.sh"; log_selftest ) || { echo "publish-artifact selftest FAIL log.sh" >&2; fails=$((fails+1)); }
 
   cd /
   rm -rf "$tmp"
   if [ "$fails" = "0" ]; then echo "publish-artifact selftest: ok" >&2; return 0; fi
-  echo "publish-artifact selftest: $fails kegagalan" >&2; return 1
+  echo "publish-artifact selftest: $fails failures" >&2; return 1
 }
 
 main() {
