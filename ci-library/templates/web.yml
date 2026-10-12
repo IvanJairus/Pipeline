@@ -109,7 +109,7 @@ scan:container-trivy:
       artifacts: true
   image: aquasec/trivy:0.53.0
   script:
-    - trivy image --severity CRITICAL,HIGH --format json --output trivy-report.json "$REGISTRY/$CI_PROJECT_NAME@$(cat image-digest.txt)"
+    - trivy image --severity CRITICAL,HIGH,MEDIUM --format json --output trivy-report.json "$REGISTRY/$CI_PROJECT_NAME@$(cat image-digest.txt)"
   artifacts:
     when: always
     paths:
